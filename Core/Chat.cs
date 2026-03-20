@@ -37,6 +37,54 @@ namespace OSWTools
         }
 
         /// <summary>
+        /// Sends a message to YouTube chat specifically.
+        /// </summary>
+        public void SendYouTubeMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+            try { _CPH.SendYouTubeMessage(message); }
+            catch { LogError("SendYouTubeMessage failed: " + message); }
+        }
+
+        /// <summary>
+        /// Sends a message to Kick chat specifically.
+        /// </summary>
+        public void SendKickMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+            try { _CPH.SendKickMessage(message); }
+            catch { LogError("SendKickMessage failed: " + message); }
+        }
+
+        /// <summary>
+        /// Sends the same message to all three platforms (Twitch, YouTube, Kick).
+        /// Use for announcements that should reach every chat simultaneously.
+        /// </summary>
+        public void BroadcastMessage(string message, bool asBot = false)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+            SendMessage(message, asBot);
+            SendYouTubeMessage(message);
+            SendKickMessage(message);
+        }
+
+        /// <summary>
+        /// Sends a message to the specified platform only.
+        /// platform: "twitch" | "youtube" | "kick"
+        /// Falls back to Twitch for unknown platforms.
+        /// </summary>
+        public void SendMessageToPlatform(string platform, string message, bool asBot = false)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+            switch ((platform ?? string.Empty).ToLowerInvariant())
+            {
+                case "youtube": SendYouTubeMessage(message); break;
+                case "kick":    SendKickMessage(message);    break;
+                default:        SendMessage(message, asBot); break;
+            }
+        }
+
+        /// <summary>
         /// Sends a whisper/reply to a specific user on the current platform.
         /// </summary>
         public void SendReply(string message, bool asBot = false)

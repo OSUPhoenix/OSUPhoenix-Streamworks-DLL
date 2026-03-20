@@ -1,4 +1,4 @@
-using Streamer.bot.Plugin.Interface.Enums;
+using System;
 
 namespace OSWTools
 {
@@ -75,20 +75,8 @@ namespace OSWTools
         /// </summary>
         public string GetMerchServiceName()
         {
-            try
-            {
-                switch (_CPH.GetEventType())
-                {
-                    case EventType.FourthwallOrderPlaced:   return "FourthWall";
-                    case EventType.ShopifyOrderCreated:     return "Shopify";
-                    case EventType.StreamElementsMerch:     return "StreamElements";
-                    case EventType.StreamlabsMerchandise:   return "Streamlabs";
-                    case EventType.KofiShopOrder:           return "Ko-fi";
-                }
-            }
-            catch { }
-
-            // Arg heuristics fallback
+            // Detect via arg heuristics — works across all SB versions without
+            // requiring EventType enum values that may not exist in all builds.
             try
             {
                 string dummy;

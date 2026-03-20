@@ -119,8 +119,113 @@ namespace OSWTools
             }
         }
 
-        // ── Unset ─────────────────────────────────────────────────────────────────
+        /// <summary>
+        /// Sets a user variable by user ID rather than username.
+        /// Useful when you have the ID (e.g. from Twitch API) but not the current display name.
+        /// </summary>
+        public void SetUserVarById<T>(string platform, string userId, string key, T value, bool persisted = true)
+        {
+            try
+            {
+                switch (NormalisePlatform(platform))
+                {
+                    case "youtube":
+                        _CPH.SetYouTubeUserVarById(userId, key, value, persisted);
+                        break;
+                    case "kick":
+                        _CPH.SetKickUserVarById(userId, key, value, persisted);
+                        break;
+                    default:
+                        _CPH.SetTwitchUserVarById(userId, key, value, persisted);
+                        break;
+                }
+            }
+            catch
+            {
+                LogError("SetUserVarById failed — platform: " + platform + " id: " + userId + " key: " + key);
+            }
+        }
 
+        // ── Bulk (GetUsersVar) ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns all users who have a value stored for the given variable key on
+        /// the specified platform. Returns an empty list on error.
+        ///
+        /// The returned list contains UserVariableValue&lt;T&gt; objects with:
+        ///   .UserId, .Username, .Value
+        ///
+        /// USAGE:
+        ///   var allProgress = lib.GetUsersVar&lt;string&gt;("twitch", "OSUP_SAS_Progress");
+        ///   foreach (var entry in allProgress)
+        ///       CPH.LogInfo(entry.UserName + " → " + entry.Value);
+        /// </summary>
+        public System.Collections.Generic.List<Streamer.bot.Plugin.Interface.Model.UserVariableValue<T>>
+            GetUsersVar<T>(string platform, string key, bool persisted = true)
+        {
+            try
+            {
+                switch (NormalisePlatform(platform))
+                {
+                    case "youtube":
+                        return _CPH.GetYouTubeUsersVar<T>(key, persisted)
+                            ?? new System.Collections.Generic.List<Streamer.bot.Plugin.Interface.Model.UserVariableValue<T>>();
+                    case "kick":
+                        return _CPH.GetKickUsersVar<T>(key, persisted)
+                            ?? new System.Collections.Generic.List<Streamer.bot.Plugin.Interface.Model.UserVariableValue<T>>();
+                    default:
+                        return _CPH.GetTwitchUsersVar<T>(key, persisted)
+                            ?? new System.Collections.Generic.List<Streamer.bot.Plugin.Interface.Model.UserVariableValue<T>>();
+                }
+            }
+            catch
+            {
+                return new System.Collections.Generic.List<Streamer.bot.Plugin.Interface.Model.UserVariableValue<T>>();
+            }
+        }
+
+        // ── Platform resolution ───────────────────────────────────────────────────
+
+        /// <summary>
+        /// Identifies which platform a user belongs to by checking whether they
+        /// have a stored value for a given variable key across all three platforms.
+        ///
+        /// This is the pattern used throughout SAS when a donation or merch event
+        /// provides a username but not a platform — we check all three and return
+        /// the first hit.
+        ///
+        /// Returns "Twitch", "YouTube", "Kick", or empty string if not found on any.
+        ///
+        /// USAGE:
+        ///   string platform = lib.ResolveUserPlatform("OSUPhoenix", "OSUP_SAS_Progress");
+        ///   if (string.IsNullOrEmpty(platform))
+        ///       // user not known on any platform
+        /// </summary>
+        public string ResolveUserPlatform(string userName, string varKey, bool persisted = true)
+        {
+            if (string.IsNullOrWhiteSpace(userName)) return string.Empty;
+            try
+            {
+                if (_CPH.GetTwitchUserVar<string>(userName, varKey, persisted) != null)
+                    return "Twitch";
+            }
+            catch { }
+            try
+            {
+                if (_CPH.GetYouTubeUserVar<string>(userName, varKey, persisted) != null)
+                    return "YouTube";
+            }
+            catch { }
+            try
+            {
+                if (_CPH.GetKickUserVar<string>(userName, varKey, persisted) != null)
+                    return "Kick";
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        // ── Unset ─────────────────────────────────────────────────────────────────
         /// <summary>Removes a user variable for the given platform and username.</summary>
         public void UnsetUserVar(string platform, string userName, string key, bool persisted = true)
         {

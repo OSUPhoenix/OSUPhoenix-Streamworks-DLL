@@ -1,5 +1,4 @@
 using System;
-using Streamer.bot.Plugin.Interface.Enums;
 
 namespace OSWTools
 {
@@ -139,24 +138,8 @@ namespace OSWTools
         /// </summary>
         public string GetDonationServiceName()
         {
-            // Try event type first — most accurate
-            try
-            {
-                switch (_CPH.GetEventType())
-                {
-                    case EventType.StreamlabsDonation:         return "Streamlabs";
-                    case EventType.StreamlabsCharityDonation:  return "StreamlabsCharity";
-                    case EventType.DonorDriveDonation:         return "DonorDrive";
-                    case EventType.FourthwallDonation:         return "FourthWall";
-                    case EventType.PallyggCampaignTip:         return "Pally.gg";
-                    case EventType.StreamElementsTip:          return "StreamElements";
-                    case EventType.KofiDonation:               return "Ko-Fi";
-                    case EventType.TipeeeStreamDonation:       return "TipeeeStream";
-                }
-            }
-            catch { }
-
-            // Fallback: arg heuristics (matches Donation Tracker's DetectPlatformFromArgs)
+            // Detect via arg heuristics — works across all SB versions without
+            // requiring EventType enum values that may not exist in all builds.
             try
             {
                 string dummy;

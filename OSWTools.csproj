@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props"
-          Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -13,8 +11,8 @@
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <TargetFrameworkProfile />
+    <ProjectGuid>{506F3823-40A9-0C9B-C4E7-B9AA4119907D}</ProjectGuid>
   </PropertyGroup>
-
   <PropertyGroup>
     <LangVersion>7.3</LangVersion>
     <!-- We use no NuGet packages — all references are direct HintPath DLLs.    -->
@@ -24,7 +22,6 @@
     <ResolveNuGetPackages>false</ResolveNuGetPackages>
     <RestoreProjectStyle>PackagesConfig</RestoreProjectStyle>
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
@@ -34,7 +31,6 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
@@ -43,7 +39,6 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
-
   <!-- ── Local DLL references ──────────────────────────────────────────────────
        These two Streamer.bot assemblies live in the dlls/ subfolder.
        Copy them from your Streamer.bot installation folder whenever SB updates.
@@ -64,7 +59,6 @@
       <HintPath>dlls\Newtonsoft.Json.dll</HintPath>
     </Reference>
   </ItemGroup>
-
   <!-- ── Framework references ──────────────────────────────────────────────────
        Standard .NET 4.8.1 framework assemblies.
        System.Windows.Forms and System.Drawing give us WinForms support
@@ -81,14 +75,13 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
   </ItemGroup>
-
   <!-- ── Source files ───────────────────────────────────────────────────────────
        The root OSWLib.cs defines the partial class and constructor.
        Everything else extends it via partial class in subfolders.
   ──────────────────────────────────────────────────────────────────────────── -->
   <ItemGroup>
     <Compile Include="OSWLib.cs" />
-
+    <Compile Include="BotEliminator\**\*.cs" />
     <Compile Include="Theme\**\*.cs" />
     <Compile Include="Core\**\*.cs" />
     <Compile Include="Data\**\*.cs" />
@@ -96,6 +89,5 @@
     <Compile Include="Extensions\**\*.cs" />
     <Compile Include="Versioning\**\*.cs" />
   </ItemGroup>
-
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

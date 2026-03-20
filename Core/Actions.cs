@@ -5,24 +5,22 @@ namespace OSWTools
     /// <summary>
     /// Streamer.bot action execution helpers.
     ///
+    /// NOTE: GetEventType() and GetSource() are intentionally NOT wrapped here.
+    /// The EventType and EventSource enums live inside Streamer.bot's own
+    /// assemblies and their exact namespaces vary between SB versions.
+    /// Call CPH.GetEventType() and CPH.GetSource() directly in your scripts.
+    ///
     /// USAGE:
     ///   var lib = new OSWLib(CPH, "My Tool");
-    ///
-    ///   // Run an action by name — returns true if the action was found and queued
-    ///   bool ok = lib.RunAction("My SB Action");
-    ///
-    ///   // Run and log a warning if the action wasn't found
+    ///   bool ok = lib.RunAction("Next Clip");
     ///   lib.RunActionRequired("Next Clip");
-    ///
-    ///   // Wait a number of milliseconds (interruptible by SB)
     ///   lib.Wait(2000);
     /// </summary>
     public partial class OSWLib
     {
         /// <summary>
         /// Runs a Streamer.bot action by name.
-        /// Returns true if the action was found and queued successfully.
-        /// Returns false (and logs a warning) if the action doesn't exist.
+        /// Returns true if found and queued. Logs a warning if not found.
         /// </summary>
         public bool RunAction(string actionName, bool runImmediately = true)
         {
@@ -36,15 +34,14 @@ namespace OSWTools
             }
             catch (Exception ex)
             {
-                LogError("RunAction threw an exception for '" + actionName + "': " + ex.Message);
+                LogError("RunAction threw for '" + actionName + "': " + ex.Message);
                 return false;
             }
         }
 
         /// <summary>
-        /// Runs a Streamer.bot action and logs an error (not just a warning)
-        /// if it isn't found. Use this for actions that are critical to your
-        /// tool's operation — makes missing wiring easier to spot in the log.
+        /// Runs a required action — logs an error (not just a warning) if not found.
+        /// Use for actions that are critical to your tool's operation.
         /// </summary>
         public bool RunActionRequired(string actionName, bool runImmediately = true)
         {
@@ -66,19 +63,16 @@ namespace OSWTools
         }
 
         /// <summary>
-        /// Runs a Streamer.bot action by its internal GUID rather than its name.
+        /// Runs a Streamer.bot action by its internal GUID.
         /// Useful when action names might change but the GUID stays stable.
         /// </summary>
         public bool RunActionById(string actionId, bool runImmediately = true)
         {
             if (string.IsNullOrWhiteSpace(actionId)) return false;
-            try
-            {
-                return _CPH.RunActionById(actionId, runImmediately);
-            }
+            try { return _CPH.RunActionById(actionId, runImmediately); }
             catch (Exception ex)
             {
-                LogError("RunActionById threw an exception for '" + actionId + "': " + ex.Message);
+                LogError("RunActionById threw for '" + actionId + "': " + ex.Message);
                 return false;
             }
         }
