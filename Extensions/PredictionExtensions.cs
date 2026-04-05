@@ -151,27 +151,26 @@ namespace OSWTools
         /// <param name="predictionId">The prediction ID from <see cref="TwitchCreatePrediction"/>.</param>
         /// <param name="winngId">The outcome ID (Outcome1Id or Outcome2Id) that won.</param>
         /// <returns>True on success, false if the call failed.</returns>
-        public bool TwitchResolvePrediction(string predictionId, string winngId)
-        {
-            if (string.IsNullOrEmpty(predictionId) || string.IsNullOrEmpty(winngId))
-            {
-                LogWarn("TwitchResolvePrediction: predictionId or winngId is null/empty — skipping.");
-                return false;
-            }
+public bool TwitchResolvePrediction(string predictionId, string winningOutcomeId)
+{
+    if (string.IsNullOrEmpty(predictionId) || string.IsNullOrEmpty(winningOutcomeId))
+    {
+        LogWarn("TwitchResolvePrediction: predictionId or winningOutcomeId is null/empty — skipping.");
+        return false;
+    }
 
-            try
-            {
-                _CPH.TwitchPredictionResolve(predictionId, winngId);
-                LogDebug("Prediction resolved | PredID:" + predictionId + " | Winner:" + winningId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogError("TwitchResolvePrediction failed: " + ex.Message);
-                return false;
-            }
-        }
-
+    try
+    {
+        _CPH.TwitchPredictionResolve(predictionId, winningOutcomeId);
+        LogDebug("Prediction resolved | PredID:" + predictionId + " | Winner:" + winningOutcomeId);
+        return true;
+    }
+    catch (Exception ex)
+    {
+        LogError("TwitchResolvePrediction failed: " + ex.Message);
+        return false;
+    }
+}
         // ── TwitchCancelPrediction ────────────────────────────────────
         /// <summary>
         /// Cancels an active Twitch Prediction and refunds all points.
