@@ -41,11 +41,6 @@ namespace OSWTools.Utilities
 
     public static class ColorUtils
     {
-        // ── .NET 4.8.1 compatibility helpers ─────────────────────────────────
-        // Math.Clamp was introduced in .NET 5. We provide our own equivalent so
-        // the DLL compiles against the net481 target without any changes to callers.
-        private static double Clamp01(double v) => v < 0.0 ? 0.0 : v > 1.0 ? 1.0 : v;
-
         // ── Hex ↔ RGBA ────────────────────────────────────────────────────────
 
         /// <summary>
@@ -385,11 +380,13 @@ namespace OSWTools.Utilities
         /// </summary>
         public static (byte R, byte G, byte B, byte A) FloatToRGBA(double r, double g, double b, double a = 1.0)
         {
+            // FIX: Bug #2 — Replaced Math.Clamp (not available in .NET Framework 4.8.1)
+            //      with ClampDouble helper. Math.Clamp was added in .NET Core 2.0 only.
             return (
-                (byte)(Clamp01(r) * 255),
-                (byte)(Clamp01(g) * 255),
-                (byte)(Clamp01(b) * 255),
-                (byte)(Clamp01(a) * 255)
+                (byte)(ClampDouble(r, 0.0, 1.0) * 255),
+                (byte)(ClampDouble(g, 0.0, 1.0) * 255),
+                (byte)(ClampDouble(b, 0.0, 1.0) * 255),
+                (byte)(ClampDouble(a, 0.0, 1.0) * 255)
             );
         }
 
@@ -468,7 +465,8 @@ namespace OSWTools.Utilities
                 (byte)Math.Round(r * 255),
                 (byte)Math.Round(g * 255),
                 (byte)Math.Round(b * 255),
-                (byte)Math.Round(Clamp01(a) * 255)
+                // FIX: Bug #2 — Replaced Math.Clamp with ClampDouble
+                (byte)Math.Round(ClampDouble(a, 0.0, 1.0) * 255)
             );
         }
 
@@ -567,7 +565,8 @@ namespace OSWTools.Utilities
                 (byte)Math.Round(r * 255),
                 (byte)Math.Round(g * 255),
                 (byte)Math.Round(b * 255),
-                (byte)Math.Round(Clamp01(a) * 255)
+                // FIX: Bug #2 — Replaced Math.Clamp with ClampDouble
+                (byte)Math.Round(ClampDouble(a, 0.0, 1.0) * 255)
             );
         }
 
@@ -577,16 +576,6 @@ namespace OSWTools.Utilities
         /// <summary>
         /// Returns the relative luminance of an RGB color (0.0–1.0).
         /// Uses the WCAG 2.1 formula for perceptual brightness.
-        ///
-        /// The WCAG formula linearizes the sRGB values first (gamma correction)
-        /// before weighting the channels — this produces a result that matches
-        /// how bright the color actually looks to the human eye.
-        ///
-        /// Compare: StreamUP uses the simpler YIQ formula (0.299R + 0.587G + 0.114B)
-        /// which skips gamma correction. Both work for a light/dark decision, but
-        /// WCAG is more accurate at the edges (very dark or very bright colors).
-        ///
-        /// Useful for deciding whether to use white or black text on a background.
         /// </summary>
         public static double GetLuminance(byte r, byte g, byte b)
         {
@@ -601,14 +590,6 @@ namespace OSWTools.Utilities
         /// <summary>
         /// Returns the best foreground color (black or white hex string) for text
         /// displayed on top of a given background color.
-        ///
-        /// Uses the WCAG 2.1 luminance formula.
-        ///   Returns "#000000" for light backgrounds.
-        ///   Returns "#FFFFFF" for dark backgrounds.
-        ///
-        /// Example:
-        ///   ColorUtils.GetContrastColor(255, 106, 0)  → "#000000"  (dark on orange)
-        ///   ColorUtils.GetContrastColor(0, 0, 0)      → "#FFFFFF"  (white on black)
         /// </summary>
         public static string GetContrastColor(byte r, byte g, byte b)
         {
@@ -617,9 +598,6 @@ namespace OSWTools.Utilities
 
         /// <summary>
         /// Returns the best foreground hex color for text on an OBS color background.
-        ///
-        /// Example:
-        ///   ColorUtils.GetContrastColorFromOBS(1845493760)  → "#FFFFFF"
         /// </summary>
         public static string GetContrastColorFromOBS(long obsColor)
         {
@@ -630,12 +608,6 @@ namespace OSWTools.Utilities
         /// <summary>
         /// Returns the best foreground OBS color integer (black or white) for text
         /// displayed on top of an OBS color background.
-        ///
-        /// Returns OBS integers directly usable in SetInputSettings without any
-        /// further conversion. Matches the values StreamUP uses in their
-        /// GetContrastingColourLong method:
-        ///   Black OBS int = 4278190080  (0xFF000000)
-        ///   White OBS int = 4294967295  (0xFFFFFFFF)
         /// </summary>
         public static long GetContrastOBSColorFromOBS(long obsColor)
         {
@@ -682,9 +654,6 @@ namespace OSWTools.Utilities
         /// Linearly interpolates between two RGBA colors.
         /// t = 0.0 → fully colorA,  t = 1.0 → fully colorB.
         ///
-        /// Useful for animated color transitions in overlays, e.g. a health bar
-        /// fading from green to red as HP drops.
-        ///
         /// Example:
         ///   ColorUtils.LerpRGBA((255,0,0,255), (0,255,0,255), 0.5)
         ///   → (127, 127, 0, 255)
@@ -694,7 +663,8 @@ namespace OSWTools.Utilities
             (byte R, byte G, byte B, byte A) colorB,
             double t)
         {
-            t = Clamp01(t);
+            // FIX: Bug #2 — Replaced Math.Clamp with ClampDouble
+            t = ClampDouble(t, 0.0, 1.0);
             return (
                 (byte)Math.Round(colorA.R + (colorB.R - colorA.R) * t),
                 (byte)Math.Round(colorA.G + (colorB.G - colorA.G) * t),
@@ -722,11 +692,6 @@ namespace OSWTools.Utilities
 
         /// <summary>
         /// Returns a new OBS color integer with the alpha channel replaced.
-        /// Useful for changing overlay opacity without altering the RGB color.
-        ///
-        /// Example:
-        ///   ColorUtils.SetOBSColorAlpha(1845493760, 255)
-        ///   → 4278190080  (same black, now fully opaque)
         /// </summary>
         public static long SetOBSColorAlpha(long obsColor, byte newAlpha)
         {
@@ -736,14 +701,11 @@ namespace OSWTools.Utilities
 
         /// <summary>
         /// Returns a new OBS color integer with alpha set from a float (0.0–1.0).
-        ///
-        /// Example:
-        ///   ColorUtils.SetOBSColorAlphaFloat(1845493760, 1.0)
-        ///   → 4278190080  (same black, fully opaque)
         /// </summary>
         public static long SetOBSColorAlphaFloat(long obsColor, double alpha)
         {
-            byte a = (byte)(Clamp01(alpha) * 255);
+            // FIX: Bug #2 — Replaced Math.Clamp with ClampDouble
+            byte a = (byte)(ClampDouble(alpha, 0.0, 1.0) * 255);
             return SetOBSColorAlpha(obsColor, a);
         }
 
@@ -756,70 +718,15 @@ namespace OSWTools.Utilities
             if (value > 255) return 255;
             return (byte)value;
         }
+
+        // FIX: Bug #2 — Added ClampDouble helper to replace Math.Clamp.
+        //      Math.Clamp was introduced in .NET Core 2.0 and does NOT exist
+        //      in .NET Framework 4.8.1 (the target for this project/Streamer.bot).
+        //      This helper uses Math.Max + Math.Min which are available in all
+        //      .NET Framework versions. Produces identical results to Math.Clamp.
+        private static double ClampDouble(double value, double min, double max)
+        {
+            return Math.Max(min, Math.Min(max, value));
+        }
     }
 }
-
-// =============================================================================
-//  QUICK REFERENCE
-// =============================================================================
-//
-//  HEX / RGBA
-//    HexToRGBA("#FF6A00")                → (R=255, G=106, B=0, A=255)
-//    HexToRGBA("#6E000000")              → (R=0,   G=0,   B=0, A=110)  ← OBS format
-//    RGBAToHex(255, 106, 0)              → "#FF6A00"
-//    RGBAToHex(255, 106, 0, 128)         → "#80FF6A00"
-//
-//  UNIVERSAL PARSER
-//    ParseColorString("#FF6A00")          → (R=255, G=106, B=0,  A=255)
-//    ParseColorString("rgb(255,106,0)")   → (R=255, G=106, B=0,  A=255)
-//    ParseColorString("rgba(0,0,0,0.5)") → (R=0,   G=0,   B=0,  A=128)
-//    ParseColorString("red")              → (R=255, G=0,   B=0,  A=255)
-//    ParseColorString("255,106,0")        → (R=255, G=106, B=0,  A=255)
-//    ParseToOBSColor("rgb(255,106,0)")    → OBS ARGB long directly
-//
-//  OBS ↔ RGBA  (ARGB format — confirmed by StreamUP Color.ToArgb() usage)
-//    OBSColorToRGBA(1845493760)          → (R=0, G=0, B=0, A=110)
-//    RGBAToOBSColor(0, 0, 0, 110)        → 1845493760
-//
-//  OBS ↔ HEX
-//    OBSColorToHex(1845493760)           → "#6E000000"   (OBS UI format #AARRGGBB)
-//    OBSColorToCSSHex(1845493760)        → "#000000"     (CSS, no alpha)
-//    OBSColorToCSSHex(1845493760, true)  → "#0000006E"   (CSS4 with alpha appended)
-//    HexToOBSColor("#6E000000")          → 1845493760
-//
-//  OBS → CSS
-//    OBSColorToCSSRgba(1845493760)       → "rgba(0, 0, 0, 0.431)"
-//    OBSColorToAlphaFloat(1845493760)    → 0.431
-//
-//  FLOAT COMPONENTS
-//    RGBAToFloat(255, 128, 0, 255)       → (R=1.0, G=0.502, B=0.0, A=1.0)
-//    FloatToRGBA(1.0, 0.502, 0.0)        → (R=255, G=128, B=0, A=255)
-//
-//  HSL
-//    RGBAToHSL(255, 106, 0)             → (H=24.94, S=1.0, L=0.5, A=1.0)
-//    HSLToRGBA(24.94, 1.0, 0.5)         → (R=255, G=106, B=0, A=255)
-//
-//  HSV
-//    RGBAToHSV(255, 106, 0)             → (H=24.94, S=1.0, V=1.0, A=1.0)
-//    HSVToRGBA(24.94, 1.0, 1.0)         → (R=255, G=106, B=0, A=255)
-//
-//  LUMINANCE / CONTRAST
-//    GetLuminance(255, 106, 0)               → 0.351
-//    GetContrastColor(255, 106, 0)           → "#000000"
-//    GetContrastColorFromOBS(1845493760)     → "#FFFFFF"
-//    GetContrastOBSColorFromOBS(1845493760)  → 4294967295  (white OBS int)
-//
-//  RANDOM
-//    GetRandomColor()                    → random (R, G, B, 255) tuple
-//    GetRandomColorHex()                 → random "#RRGGBB" string
-//    GetRandomOBSColor()                 → random OBS ARGB long
-//
-//  LERP
-//    LerpRGBA((255,0,0,255), (0,255,0,255), 0.5)  → (127, 127, 0, 255)
-//    LerpOBSColor(obsRed, obsGreen, 0.5)           → OBS int at midpoint
-//
-//  ALPHA
-//    SetOBSColorAlpha(1845493760, 255)       → 4278190080  (fully opaque black)
-//    SetOBSColorAlphaFloat(1845493760, 0.5)  → 50% opacity black OBS int
-//
-// =============================================================================

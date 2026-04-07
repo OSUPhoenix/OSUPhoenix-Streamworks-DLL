@@ -121,8 +121,16 @@ namespace OSWTools.Theme
             {
                 e.Graphics.FillRectangle(brush, pnl.ClientRectangle);
             }
-            // Top-edge seam line
-            e.Graphics.DrawLine(new Pen(CDiv, 1), 0, 0, pnl.Width, 0);
+            // FIX: Bug #3 — Wrapped Pen in using block.
+            //      Previously: e.Graphics.DrawLine(new Pen(CDiv, 1), ...);
+            //      The Pen was allocated but never disposed, leaking a GDI handle
+            //      on every repaint. Paint events fire frequently (resize, focus,
+            //      overlapping windows), so this would eventually exhaust the
+            //      ~10,000 GDI handle limit and crash the process.
+            using (var pen = new Pen(CDiv, 1))
+            {
+                e.Graphics.DrawLine(pen, 0, 0, pnl.Width, 0);
+            }
         }
 
         /// <summary>
@@ -133,8 +141,16 @@ namespace OSWTools.Theme
         public static void PaintHeaderBg(object sender, PaintEventArgs e)
         {
             var pnl = (Panel)sender;
-            e.Graphics.FillRectangle(new SolidBrush(CPnl), pnl.ClientRectangle);
-            e.Graphics.DrawLine(new Pen(CDiv, 1), 0, pnl.Height - 1, pnl.Width, pnl.Height - 1);
+            // FIX: Bug #4 — Wrapped SolidBrush in using block (was leaking GDI handle).
+            using (var brush = new SolidBrush(CPnl))
+            {
+                e.Graphics.FillRectangle(brush, pnl.ClientRectangle);
+            }
+            // FIX: Bug #5 — Wrapped Pen in using block (was leaking GDI handle).
+            using (var pen = new Pen(CDiv, 1))
+            {
+                e.Graphics.DrawLine(pen, 0, pnl.Height - 1, pnl.Width, pnl.Height - 1);
+            }
         }
 
         /// <summary>
@@ -144,10 +160,15 @@ namespace OSWTools.Theme
         public static void PaintRightBorder(object sender, PaintEventArgs e)
         {
             var pnl = (Panel)sender;
-            e.Graphics.DrawLine(new Pen(CDiv, 1), pnl.Width - 1, 0, pnl.Width - 1, pnl.Height);
+            // FIX: Bug #6 — Wrapped Pen in using block (was leaking GDI handle).
+            using (var pen = new Pen(CDiv, 1))
+            {
+                e.Graphics.DrawLine(pen, pnl.Width - 1, 0, pnl.Width - 1, pnl.Height);
+            }
         }
 
         // ── Logo ──────────────────────────────────────────────────────────
+
         /// <summary>StreamWorks logo URL used in OSW tool brand headers.</summary>
         public const string LogoUrl =
             "https://i0.wp.com/osuphoenix.tv/wp-content/uploads/2025/11/StreamWorks-500-px.webp?resize=150%2C150&ssl=1";
