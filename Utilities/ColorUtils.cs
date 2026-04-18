@@ -620,22 +620,53 @@ namespace OSWTools.Utilities
 
         // ── Random Color ──────────────────────────────────────────────────────
 
+        // Shared Random instance — avoids creating new Random() on every call,
+        // which can produce identical sequences when called in rapid succession
+        // (new Random() seeds from the system clock, which has ~15ms resolution).
+        // Thread-safety isn't critical for color picking; worst case two threads
+        // produce identical colors at the same instant.
+        private static readonly Random _colorRand = new Random();
+
         /// <summary>
         /// Returns a random fully-opaque RGBA color.
         /// </summary>
         public static (byte R, byte G, byte B, byte A) GetRandomColor()
         {
-            var rng = new Random();
-            return ((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), 255);
+            return ((byte)_colorRand.Next(256), (byte)_colorRand.Next(256), (byte)_colorRand.Next(256), 255);
         }
 
         /// <summary>
         /// Returns a random color as a #RRGGBB hex string.
+        /// Uses the standard CSS hex format with # prefix.
         /// </summary>
         public static string GetRandomColorHex()
         {
             var (r, g, b, _) = GetRandomColor();
             return RGBAToHex(r, g, b);
+        }
+
+        /// <summary>
+        /// Returns a random color as a "0xRRGGBB" string.
+        /// The 0x prefix matches the format expected by Discord embeds
+        /// and some OBS commands. Convert to int with:
+        ///   Convert.ToInt32(hex.Substring(2), 16)
+        ///
+        /// NOTE: This differs from GetRandomColorHex() which returns "#RRGGBB".
+        /// </summary>
+        public static string GetRandomHexColor()
+        {
+            int value = _colorRand.Next(0x1000000); // 0x000000..0xFFFFFF
+            return "0x" + value.ToString("X6");
+        }
+
+        /// <summary>
+        /// Returns a random color as a plain int (0..0xFFFFFF).
+        /// Suitable for direct use as a Discord embed color field
+        /// without any string parsing.
+        /// </summary>
+        public static int GetRandomColorInt()
+        {
+            return _colorRand.Next(0x1000000);
         }
 
         /// <summary>
