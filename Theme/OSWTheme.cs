@@ -19,7 +19,7 @@ namespace OSWTools.Theme
     //   btn.Font       = OSWTheme.FnB;
     //   pnlFooter.Paint += OSWTheme.PaintFooterGradient;
     // =========================================================================
-    public static class OSWTheme
+    public static partial class OSWTheme
     {
         // ── Color helper ─────────────────────────────────────────────────
         // Converts a hex string like "#1A1A1A" into a System.Drawing.Color.

@@ -81,13 +81,25 @@
   ──────────────────────────────────────────────────────────────────────────── -->
   <ItemGroup>
     <Compile Include="OSWLib.cs" />
-    <Compile Include="BotEliminator\**\*.cs" />
+    <Compile Include="BotEliminator\BotEliminatorData.cs" />
+    <Compile Include="BotEliminator\BotEliminatorForm.cs" />
+    <Compile Include="BotEliminator\BotEliminatorManager.cs" />
     <Compile Include="Theme\**\*.cs" />
     <Compile Include="Core\**\*.cs" />
     <Compile Include="Data\**\*.cs" />
     <Compile Include="Utilities\**\*.cs" />
     <Compile Include="Extensions\**\*.cs" />
-    <Compile Include="Versioning\**\*.cs" />
+    <Compile Include="Versioning\IntegrationRegistry.cs" />
+    <Compile Include="Versioning\OSWVersion.cs" />
+    <Compile Include="Versioning\UpdateChecker.cs" />
+    <Compile Include="Versioning\UpdateManager.cs" />
+    <Compile Include="Versioning\UpdatePromptForm.cs" />
+    <Compile Include="Versioning\Versioning.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Theme\OSUPhoenix Logo.png" />
+    <EmbeddedResource Include="Theme\StreamWorks 500 px.png" />
+    <EmbeddedResource Include="Theme\Streamworks Notion Banner.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
