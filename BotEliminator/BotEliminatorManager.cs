@@ -14,6 +14,8 @@ namespace OSWTools.BotEliminator
 
         private readonly IInlineInvokeProxy _CPH;
 
+private BotEliminatorData _cache;
+
         public BotEliminatorManager(IInlineInvokeProxy cph)
         {
             _CPH = cph ?? throw new ArgumentNullException("cph");
@@ -23,15 +25,24 @@ namespace OSWTools.BotEliminator
 
         public BotEliminatorData Load()
         {
+            var cached = _cache;
+            if (cached != null) return cached;
             MigrateFromGlobalsIfNeeded();
-            return OSWData.LoadOrDefault<BotEliminatorData>(ToolName, FileName, new BotEliminatorData());
+            var loaded = OSWData.LoadOrDefault<BotEliminatorData>(ToolName, FileName, new BotEliminatorData());
+            _cache = loaded;
+            return loaded;
         }
 
-        public void Save(BotEliminatorData data)
+ public void Save(BotEliminatorData data)
         {
             OSWData.Save<BotEliminatorData>(ToolName, FileName, data);
+            _cache = null;
         }
 
+ public void Reload()
+        {
+            _cache = null;
+        }
         // ── Public API ────────────────────────────────────────────────────────────
 
         public bool IsExcluded(string user)

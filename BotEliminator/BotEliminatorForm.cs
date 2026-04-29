@@ -211,17 +211,38 @@ namespace OSWTools.BotEliminator
                 .ToList();
         }
 
-        private static LinkLabel MakeLink(string text, string url, Point location)
+       private static LinkLabel MakeLink(string text, string url, Point location)
+{
+    var l = new LinkLabel
+    {
+        Text      = text,
+        AutoSize  = true,
+        BackColor = Color.Transparent,
+        Location  = location
+    };
+    // Modernized: Process.Start(url) without a ProcessStartInfo wrapper triggers
+    // a Win32Exception on newer .NET runtimes ("specified executable is not a
+    // valid application for this OS"). Using ProcessStartInfo with
+    // UseShellExecute = true is the correct pattern for opening URLs and is
+    // forward-compatible with .NET 5/6/7 if the DLL is ever retargeted.
+    // Wrapped in try/catch because Process.Start can throw if the user has
+    // no default browser configured or if URL handlers are misregistered —
+    // we don't want a missing browser to crash a settings form.
+    l.LinkClicked += (s, e) =>
+    {
+        try
         {
-            var l = new LinkLabel
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
             {
-                Text      = text,
-                AutoSize  = true,
-                BackColor = Color.Transparent,
-                Location  = location
-            };
-            l.LinkClicked += (s, e) => System.Diagnostics.Process.Start(url);
-            return l;
+                UseShellExecute = true
+            });
         }
+        catch
+        {
+            // Silent fail — link clicks should never crash the form
+        }
+    };
+    return l;
+}
     }
 }

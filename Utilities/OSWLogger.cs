@@ -71,23 +71,20 @@ namespace OSWTools
 
 
         // ── Settings ─────────────────────────────────────────────────────────
+        private static readonly string LogFolder =
+    System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "OSWData", "Logs");
 
-        // Root folder where all OSW log files are saved.
-        // Change this if your OSW folder lives somewhere else.
-        private static readonly string LogFolder = @"C:\OSW\Logs";
-
-        // Only messages at this level or above will be written to EITHER log.
         // Default is DEBUG — change to INFO for production to reduce noise,
         // or VERBOSE when you need every last detail during a tricky debug session.
-        private static LogLevel _minimumLevel = LogLevel.DEBUG;
+        private static LogLevel _minimumLevel = LogLevel.INFO;
 
         // Logs older than this many days are deleted by PurgeOldLogs().
         // 30 days gives you a solid month of history to look back on.
-        private static int _maxLogAgeDays = 30;
+        private static int _maxLogAgeDays = 45;
 
 
         // ── Thread Safety ─────────────────────────────────────────────────────
-        // Streamer.bot can fire multiple actions at the same millisecond.
+   
         // This lock object ensures only one thread writes to the file at a time,
         // preventing garbled or lost lines.
         private static readonly object _writeLock = new object();
