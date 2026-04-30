@@ -51,7 +51,7 @@ namespace OSWTools
         ///   true  → if asBot is true and bot is offline, fall back to broadcaster (default).
         ///   false → if asBot is true and bot is offline, do nothing.
         /// </param>
-        public void SendTwitchMessage(string message, bool asBot = false, bool fallback = true)
+        public void SendTwitchMessage(string message, bool asBot = true, bool fallback = true)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             try
@@ -82,7 +82,7 @@ namespace OSWTools
         ///   Optional YouTube broadcast ID. Pass null to use the default/active broadcast.
         ///   Only needed for multi-broadcast setups.
         /// </param>
-        public void SendYouTubeMessage(string message, bool asBot = false, bool fallback = true, string broadcastId = null)
+        public void SendYouTubeMessage(string message, bool asBot = true, bool fallback = true, string broadcastId = null)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             try
@@ -109,7 +109,7 @@ namespace OSWTools
         ///   true  → if asBot is true and bot is offline, fall back to broadcaster (default).
         ///   false → if asBot is true and bot is offline, do nothing.
         /// </param>
-        public void SendKickMessage(string message, bool asBot = false, bool fallback = true)
+        public void SendKickMessage(string message, bool asBot = true, bool fallback = true)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             try
@@ -131,7 +131,7 @@ namespace OSWTools
         /// Each platform is called by its explicit method — one send per
         /// platform, no duplicates.
         /// </summary>
-        public void BroadcastMessage(string message, bool asBot = false)
+        public void BroadcastMessage(string message, bool asBot = true)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             SendTwitchMessage(message, asBot);
@@ -144,7 +144,7 @@ namespace OSWTools
         /// platform: "twitch" | "youtube" | "kick"
         /// Falls back to Twitch for unknown platforms.
         /// </summary>
-        public void SendMessageToPlatform(string platform, string message, bool asBot = false)
+        public void SendMessageToPlatform(string platform, string message, bool asBot = true)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             switch ((platform ?? string.Empty).ToLowerInvariant())
@@ -166,7 +166,7 @@ namespace OSWTools
         ///
         /// CPH.SendMessage() is Twitch-specific per the Streamer.bot docs.
         /// </summary>
-        public void SendMessage(string message, bool asBot = false)
+        public void SendMessage(string message, bool asBot = true)
         {
             SendTwitchMessage(message, asBot);
         }
@@ -180,7 +180,7 @@ namespace OSWTools
         /// send. For threaded replies, use CPH.TwitchReplyToMessage() directly
         /// with the message ID from args.
         /// </summary>
-        public void SendReply(string message, bool asBot = false)
+        public void SendReply(string message, bool asBot = true)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             SendTwitchMessage(message, asBot);
