@@ -84,6 +84,7 @@
     <Compile Include="BotEliminator\BotEliminatorData.cs" />
     <Compile Include="BotEliminator\BotEliminatorForm.cs" />
     <Compile Include="BotEliminator\BotEliminatorManager.cs" />
+    <Compile Include="BotEliminator\**\*.cs" />
     <Compile Include="Theme\**\*.cs" />
     <Compile Include="Core\**\*.cs" />
     <Compile Include="Data\**\*.cs" />

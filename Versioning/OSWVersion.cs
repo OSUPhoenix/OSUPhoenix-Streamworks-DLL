@@ -6,9 +6,9 @@ namespace OSWTools
     /// </summary>
     public static class OSWVersion
     {
-        public const string Current     = "1.0.0";
+        public const string Current     = "1.0.1";
         public const string GitHubOwner = "OSUPhoenix";
-        public const string GitHubRepo  = "OSWTools";
+        public const string GitHubRepo  = "OSUPhoneix-Streamworks-DLL";
 
         public static string GitHubApiLatest
         {
