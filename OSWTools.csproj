@@ -81,21 +81,13 @@
   ──────────────────────────────────────────────────────────────────────────── -->
   <ItemGroup>
     <Compile Include="OSWLib.cs" />
-    <Compile Include="BotEliminator\BotEliminatorData.cs" />
-    <Compile Include="BotEliminator\BotEliminatorForm.cs" />
-    <Compile Include="BotEliminator\BotEliminatorManager.cs" />
     <Compile Include="BotEliminator\**\*.cs" />
     <Compile Include="Theme\**\*.cs" />
     <Compile Include="Core\**\*.cs" />
     <Compile Include="Data\**\*.cs" />
     <Compile Include="Utilities\**\*.cs" />
     <Compile Include="Extensions\**\*.cs" />
-    <Compile Include="Versioning\IntegrationRegistry.cs" />
-    <Compile Include="Versioning\OSWVersion.cs" />
-    <Compile Include="Versioning\UpdateChecker.cs" />
-    <Compile Include="Versioning\UpdateManager.cs" />
-    <Compile Include="Versioning\UpdatePromptForm.cs" />
-    <Compile Include="Versioning\Versioning.cs" />
+<Compile Include="Versioning\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Theme\OSUPhoenix Logo.png" />

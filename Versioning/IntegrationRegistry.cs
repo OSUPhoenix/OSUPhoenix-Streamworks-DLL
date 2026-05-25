@@ -43,6 +43,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OSWTools.Versioning;   // ★ needed for OSWVersion.Current in EnsureDllSelfRegistered()
 
 namespace OSWTools
 {

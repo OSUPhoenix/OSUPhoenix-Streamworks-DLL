@@ -1,67 +1,64 @@
 // =============================================================================
-// PATCH: OSWLib.Bridge.cs — new partial class for OSW cross-tool event routing
+// Bridge.cs — OSWLib partial class for cross-tool event routing
 //
-// Drop this file into the OSWTools.dll project alongside the other OSWLib.*.cs
-// partial classes. No code changes elsewhere in the DLL are required — this is
-// purely additive.
+// File path: Core/Bridge.cs
+// Drops into OSWTools.dll alongside other OSWLib partial class files.
 //
 // PURPOSE
-//   Provide a centralized bridge between OSW tools and the Achievement System
-//   (SAS) — and, eventually, between any pair of OSW tools that need to
-//   coordinate. v3.0.1 ships with the SAS-bound path only; future versions can
-//   add additional consumers (display tools, leaderboards, Discord webhooks)
-//   without changing the bridge API.
+//   Provide a centralized C# bridge between OSW tools and the Achievement
+//   System (SAS). Any tool (current or future) that needs to fire an
+//   achievement event calls Lib.FireAchievementEvent(...). The bridge
+//   validates the sender, sets canonical globals, and dispatches into
+//   SAS via the standard SB action chain.
 //
 // ARCHITECTURE
-//   ┌─ HTML widget (e.g. GIF Battle overlay) ───────────────────────────┐
-//   │  fires a Streamer.bot Custom Code Event via WebSocket             │
-//   │  Event names:  OSW.<Tool>.<Verb>   (e.g. OSW.GIFBattle.Win)       │
-//   │            or  OSW.AchievementEvent (generic fallback)             │
+//   ┌─ C# sender (router, action, any OSW tool's SB code) ────────────┐
+//   │  lib.FireAchievementEvent("GIFB", "GIFs", "Twitch", user,       │
+//   │                           "win", 1)                              │
 //   └──────────────┬───────────────────────────────────────────────────┘
 //                  ↓
-//   ┌─ SB action "OSW Bridge — Receive External Event" ─────────────────┐
-//   │  - Reads payload args                                              │
-//   │  - Validates sender is a registered OSW integration                │
-//   │  - Sets canonical globals (OSW_Bridge_*)                           │
-//   │  - Runs SAS action that calls OnExternalAchievementEvent           │
+//   ┌─ DLL bridge (this file) ─────────────────────────────────────────┐
+//   │  - Validates sender is registered (OSUP_<MODULE>_Installed)      │
+//   │  - Sets OSW_Bridge_* globals                                     │
+//   │  - TriggerEvent("OSW.ExternalAchievementEvent")              │
 //   └──────────────┬───────────────────────────────────────────────────┘
 //                  ↓
-//   ┌─ SAS.OnExternalAchievementEvent ──────────────────────────────────┐
-//   │  - Re-validates sender (defense in depth)                          │
-//   │  - Parses category NAME (reorder-safe) → Category enum             │
-//   │  - Applies SAS exclusions, dispatches via ProcessEvent             │
-//   └────────────────────────────────────────────────────────────────────┘
+//   ┌─ Achievement System action — OnExternalAchievementEvent ─────────┐
+//   │  - Re-validates everything (defense in depth)                    │
+//   │  - Reads OSW_Bridge_* globals                                    │
+//   │  - Dispatches via SAS's ProcessEvent                             │
+//   └──────────────────────────────────────────────────────────────────┘
 //
-//   For C# senders (SB inline actions written in C#), the helper
-//   Lib.FireAchievementEvent(...) skips the WebSocket and Custom Code Event
-//   layers — it sets the canonical globals and runs the bridge action directly.
-//   That's the recommended path for any future OSW tool written in C#.
+// HTML WIDGETS
+//   HTML widgets do NOT speak to SAS or this bridge directly. A widget
+//   that needs to fire an achievement event sends a WebSocket message
+//   to its OWN widget action in Streamer.bot (e.g. "GIF Display - Router A"),
+//   and that C# action calls Lib.FireAchievementEvent like any other
+//   C# sender. SAS doesn't need to know about HTML at all.
 //
-// PAYLOAD CONTRACT
-//   Field           Type    Required  Notes
-//   ─────────────── ─────── ────────  ─────────────────────────────────────
-//   sourceTool      string  yes       Registered OSWIntegration code
-//                                     (e.g. "GIFB", "CGGC"). Fail-closed.
-//   category        string  yes       SAS Category enum NAME (e.g. "GIFs").
-//                                     Names are reorder-safe by design.
-//   platform        string  yes       "Twitch" / "YouTube" / "Kick" / "Any"
-//   user            string  yes       Viewer name (post-relay-extraction)
-//   qualifier       string  no        Free-form filter; per-category meaning
-//   amount          int     no        triggerAmount; default 1 if 0 or missing
+// PAYLOAD CONTRACT (the canonical globals set before dispatch)
+//   Field              Type    Required  Notes
+//   ────────────────── ─────── ────────  ─────────────────────────────────
+//   OSW_Bridge_SourceTool string yes     Registered OSWIntegration code
+//   OSW_Bridge_Category   string yes     SAS Category enum NAME (reorder-safe)
+//   OSW_Bridge_Platform   string yes     "Twitch" / "YouTube" / "Kick" / "Any"
+//   OSW_Bridge_User       string yes     Viewer name (post-relay-extraction)
+//   OSW_Bridge_Qualifier  string no      Free-form filter; per-category meaning
+//   OSW_Bridge_Amount     int    no      triggerAmount; default 1 if 0 or missing
 //
 // FAIL-CLOSED DESIGN
 //   - Unknown sourceTool → drop event, log [Bridge] entry
 //   - Missing required field → drop event, log [Bridge] entry
-//   - SAS-side validation (category parse, user exclusion) is a second layer
+//   - SAS-side validation runs a second time as defense in depth
 //
 // LOG MARKER
-//   Bridge-emitted log lines use the [Bridge] prefix to distinguish them from
-//   SAS's [Skip]/[Exclude]/[Award] markers. Matches existing OSW conventions.
+//   Bridge-emitted log lines use the [Bridge] prefix to distinguish them
+//   from SAS's [Skip] / [Exclude] / [Award] markers.
 //
 // VERSIONING
-//   Initial version: 1.1.0. The bridge contract is additive — new fields can
-//   be added to the payload without breaking older senders, but existing
-//   field names are permanent.
+//   First shipped in DLL 1.0.2. The bridge contract is additive — new
+//   payload fields can be added without breaking older senders, but
+//   existing field names are permanent.
 // =============================================================================
 
 using System;
@@ -74,12 +71,21 @@ namespace OSWTools
     {
         // ── Bridge constants ────────────────────────────────────────────────
         //
-        // Action name that SAS imports into Streamer.bot. The bridge action's
-        // C# inline code reads OSW_Bridge_* globals and dispatches to SAS.
-        // If a user renames this action they'll break the bridge — but renaming
-        // SB actions is uncommon enough that I'm not going to make this
-        // configurable. It's a constant by design.
-        private const string BridgeActionName = "OSW SAS — Receive External Event";
+        // SB Custom Code Event name that SAS listens for. The Achievement
+        // System action has a sub-action with a Custom Code Event trigger
+        // matching this name and method-bound to OnExternalAchievementEvent.
+        //
+        // CPH.TriggerEvent is the correct dispatch mechanism here (not
+        // RunAction) because:
+        //   - RunAction would fire ALL sub-actions on the target action,
+        //     which would re-run Execute and break things
+        //   - TriggerEvent invokes only the specific method-bound
+        //     sub-action whose trigger matches the event name
+        //
+        // The event name is namespaced "OSW." to avoid colliding with
+        // any other tool's custom events. Future bridge consumers can
+        // share this same event name.
+        private const string BridgeCodeEventName = "OSW.ExternalAchievementEvent";
 
         // Canonical global-variable names that the bridge sets before running
         // the action. SAS's OnExternalAchievementEvent reads the same names.
@@ -178,16 +184,30 @@ namespace OSWTools
             LogDebug($"[Bridge] Fire from '{sourceTool}': category={category}, " +
                      $"platform={platform}, user={user}, qualifier={qualifier}, amount={amount}");
 
-            // Run the SAS-bound bridge action. If it's missing (e.g. user
-            // didn't import SAS), RunAction logs a warning and returns false.
-            // We surface that to the caller via our own return value so they
-            // can decide what to do.
-            bool dispatched = RunAction(BridgeActionName);
-            if (!dispatched)
-                LogInfo($"[Bridge] Drop from '{sourceTool}': bridge action " +
-                        $"'{BridgeActionName}' is not present in Streamer.bot. " +
-                        $"Is SAS installed and imported?");
-            return dispatched;
+            // Dispatch via Custom Code Event. SAS's sub-action with a matching
+            // Custom Code Event trigger picks this up and runs its bound
+            // OnExternalAchievementEvent method. We pass useArgs=false because
+            // we communicate via globals (OSW_Bridge_*), not args — globals
+            // survive the SB action boundary; args are scoped per-execution.
+            //
+            // TriggerEvent has no return value, so we can't surface dispatch
+            // failures back to the caller. If SAS isn't installed or doesn't
+            // have the trigger configured, the event silently goes nowhere.
+            // That's a setup-time problem detectable via the SAS startup log,
+            // not a runtime problem worth complicating the return signature for.
+            try
+            {
+                _CPH.TriggerEvent(BridgeCodeEventName, useArgs: false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Defensive: if TriggerEvent itself throws (e.g. SB is in
+                // an unusual state), don't take down the calling tool.
+                LogInfo($"[Bridge] Drop from '{sourceTool}': TriggerEvent " +
+                        $"threw: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────
