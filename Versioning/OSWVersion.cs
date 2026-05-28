@@ -33,7 +33,7 @@ namespace OSWTools.Versioning
         /// master product registry sheet — otherwise the master update checker
         /// will tell users their DLL is out of date when it isn't.
         /// </summary>
-        public const string Current     = "1.0.1";  // ★ bumped from 1.0.0
+        public const string Current     = "1.0.2";  // ★ bumped from 1.0.0
 
         // ─────────────────────────────────────────────────────────────────────
         // GITHUB SELF-UPDATE COORDINATES (used by UpdateChecker.cs)
