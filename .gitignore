@@ -50,3 +50,15 @@ Desktop.ini
 
 # ── Personal Use with Private Data───────────────────────────────────────────────────────────────────
 Personal References/
+
+# ── OMS credential files ─────────────────────────────────────────────────────
+# OmsCredentials.cs contains the real Google OAuth Client ID, Client Secret,
+# and DPAPI entropy bytes. NEVER commit this file.
+# The template (OmsCredentials.template.cs) is committed instead.
+OSWTools/Scheduling/OmsCredentials.cs
+
+# OmsCredentialBuilder.cs may have real credentials pasted in while running.
+# Exclude it from release builds via build configuration, but also exclude from
+# accidental commits if it ever has real values in it.
+# Comment this line out if you want the tool itself in the repo (with empty strings).
+OSWTools/Scheduling/OmsCredentialBuilder.cs

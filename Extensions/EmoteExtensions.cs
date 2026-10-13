@@ -9,6 +9,13 @@
 //   bool            IsTwitchEmoteToken(string token, string msg, string emoteData)
 //   bool            RefreshEmoteCache(bool force = true)
 //   bool            IsKnownEmote(string token)        // convenience: channel ∪ global
+//   string          GetEmoteImageUrl(string name, int ttlHours = 6)   // NEW: picture URL, "" if unknown
+//
+// CHANGELOG
+//   NEW  GetEmoteImageUrl(): name -> https picture URL, built from the Helix
+//        emote ID that this cache was already downloading (it just wasn't
+//        being remembered in memory). Purely additive: no existing method,
+//        signature or file format changed.
 //
 // PERSISTENCE:
 //   Cache is stored once at OSWData/EmoteCache/twitch.json containing both
@@ -64,6 +71,10 @@ namespace OSWTools
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static HashSet<string> _globalEmoteCache =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // NEW: emote name -> Helix emote id, filled every time the name sets above
+        // are filled. Lets us build a picture URL for any cached emote.
+        private static Dictionary<string, string> _emoteIdByName =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private static DateTime _emoteCacheLoadedAtUtc = DateTime.MinValue;
         private static bool _emoteCacheBootstrapped = false;
 
@@ -105,6 +116,31 @@ namespace OSWTools
             if (string.IsNullOrEmpty(token)) return false;
             EnsureEmotesLoaded(false, DefaultEmoteTtlHours);
             return _channelEmoteCache.Contains(token) || _globalEmoteCache.Contains(token);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PUBLIC (NEW): picture URL for a Twitch emote name, or "" if the name
+        // isn't a channel/global Twitch emote we know about.
+        //
+        // Third-party emotes (BTTV / FFZ / 7TV) are NOT in Helix, so they return
+        // "" here — callers should fall back to the image URL Streamer.bot
+        // gives them in the chat message's `emotes` argument.
+        //
+        // URL pattern (Twitch's public emote CDN):
+        //   https://static-cdn.jtvnw.net/emoticons/v2/{id}/{format}/{theme}/{scale}
+        // ─────────────────────────────────────────────────────────────────────
+        public string GetEmoteImageUrl(string name, int ttlHours = DefaultEmoteTtlHours)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            EnsureEmotesLoaded(false, ttlHours);
+
+            lock (_emoteCacheLock)
+            {
+                string id;
+                if (_emoteIdByName.TryGetValue(name.Trim(), out id) && !string.IsNullOrEmpty(id))
+                    return "https://static-cdn.jtvnw.net/emoticons/v2/" + id + "/default/dark/3.0";
+            }
+            return "";
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -206,6 +242,7 @@ namespace OSWTools
                             _globalEmoteCache = new HashSet<string>(
                                 cached.Global.Select(e => e.name),
                                 StringComparer.OrdinalIgnoreCase);
+                            RebuildEmoteIdMap(cached.Channel, cached.Global);   // NEW
                             _emoteCacheLoadedAtUtc = cached.FetchedAtUtc;
                             _emoteCacheBootstrapped = true;
                             LogInfo($"[Emotes] Loaded from cache file. " +
@@ -225,6 +262,22 @@ namespace OSWTools
                 // Return whether we have anything at all in memory (better than nothing)
                 return _channelEmoteCache.Count > 0 || _globalEmoteCache.Count > 0;
             }
+        }
+
+        // NEW. Remembers name -> id for every emote in both lists. Channel is added
+        // last so, if a name appears in both, the channel emote wins.
+        // Caller must hold _emoteCacheLock.
+        private static void RebuildEmoteIdMap(List<TwitchEmote> channel, List<TwitchEmote> global)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var list in new[] { global, channel })
+            {
+                if (list == null) continue;
+                foreach (var e in list)
+                    if (e != null && !string.IsNullOrEmpty(e.name) && !string.IsNullOrEmpty(e.id))
+                        map[e.name] = e.id;
+            }
+            _emoteIdByName = map;
         }
 
         // Hits Helix for both channel + global emotes, saves to disk, updates memory.
@@ -258,6 +311,7 @@ namespace OSWTools
                     channelList.Select(e => e.name), StringComparer.OrdinalIgnoreCase);
                 _globalEmoteCache = new HashSet<string>(
                     globalList.Select(e => e.name), StringComparer.OrdinalIgnoreCase);
+                RebuildEmoteIdMap(channelList, globalList);   // NEW
                 _emoteCacheLoadedAtUtc = DateTime.UtcNow;
                 _emoteCacheBootstrapped = true;
 

@@ -4,7 +4,9 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using OSWTools.Theme;
 
 namespace OSWTools
 {
@@ -17,50 +19,43 @@ namespace OSWTools
     //  accidental on-screen exposure during a stream.
     //
     //  HOW TO OPEN FROM SB:
-    //    Create an SB action (manual trigger — run from desktop, not during stream)
-    //    Execute Code subaction:
-    //      var lib = new OSWLib(CPH, "Tiltify Settings");
-    //      lib.TiltifyOpenSettings();
+    //    var lib = new OSWLib(CPH, "Tiltify Settings");
+    //    lib.TiltifyOpenSettings();
     //
-    //  FLOW:
-    //    1. User opens UI → existing saved values pre-populate (masked)
-    //    2. User edits any fields they want to change
-    //    3. User clicks "Verify & Save"
-    //       → Hits Tiltify token endpoint with ClientId + ClientSecret
-    //       → If token OK, hits campaign endpoint with CampaignPublicId
-    //       → If campaign found, saves everything to JSON and shows campaign name
-    //       → If anything fails, shows an error without saving
-    //    4. User closes window — integration is ready to use
+    //  CHANGELOG
+    //  ---------
+    //  v5:
+    //  • Fixed FTL crash: "Parameter is not valid" at Font.GetHeight().
+    //    Root cause: OSWTheme static Font fields can become invalid after a
+    //    Streamer.bot AppDomain reload. Assigning a disposed GDI font to a
+    //    Control.Font property throws ArgumentException.
+    //    Fix: BuildUI() now constructs its own local Font instances using the
+    //    same parameters as OSWTheme (same family/size/style), and disposes
+    //    them in OnFormClosed. Colors and paint helpers from OSWTheme are safe
+    //    because Color is a value type and Paint delegates don't hold GDI state.
+    //
+    //  v4: Applied OSWTheme colors, paint helpers, and embedded logo.
+    //  v3: Moved config storage from %AppData% to OSWData\Tiltify\config.json.
     // =========================================================================
 
     public partial class OSWLib
     {
         /// <summary>
         /// Opens the Tiltify settings window on an STA thread (required for WinForms).
-        ///
-        /// Call this from a manually-triggered SB action. Not intended to be
-        /// called on startup or from a timer — only when the user wants to
-        /// configure or update their credentials.
+        /// Call from a manually-triggered SB action only.
         /// </summary>
         public void TiltifyOpenSettings()
         {
-            // WinForms requires a Single-Threaded Apartment (STA) thread.
-            // Streamer.bot runs on MTA threads, so we spin up our own.
             Thread uiThread = new Thread(() =>
             {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-
-                // Load whatever is already saved so we can pre-populate the form
-                TiltifySettingsForm form = new TiltifySettingsForm();
-                Application.Run(form);
+                Application.Run(new TiltifySettingsForm());
             });
 
             uiThread.SetApartmentState(ApartmentState.STA);
             uiThread.IsBackground = true;
             uiThread.Start();
-
-            // Wait for the UI thread to finish before returning to SB
             uiThread.Join();
 
             LogInfo("TiltifyOpenSettings: settings window closed.");
@@ -70,50 +65,49 @@ namespace OSWTools
 
     // =========================================================================
     //  TiltifySettingsForm
-    //  The actual WinForms window — defined outside OSWLib since WinForms
-    //  designer-style forms don't belong inside a partial class.
     // =========================================================================
 
     internal class TiltifySettingsForm : Form
     {
-        // ── OSW Theme Colors ──────────────────────────────────────────────────
-        // Dark background with silver and red accents — matches OSW brand
-        private static readonly Color ColorBackground  = Color.FromArgb(18,  18,  20);   // near-black
-        private static readonly Color ColorSurface     = Color.FromArgb(28,  28,  32);   // card bg
-        private static readonly Color ColorBorder      = Color.FromArgb(55,  55,  65);   // subtle border
-        private static readonly Color ColorAccentRed   = Color.FromArgb(200, 40,  40);   // OSW red
-        private static readonly Color ColorAccentSilver= Color.FromArgb(192, 192, 200);  // silver text
-        private static readonly Color ColorTextPrimary = Color.FromArgb(230, 230, 235);  // main text
-        private static readonly Color ColorTextMuted   = Color.FromArgb(130, 130, 140);  // helper text
-        private static readonly Color ColorSuccess     = Color.FromArgb(60,  180, 90);   // verified green
-        private static readonly Color ColorError       = Color.FromArgb(220, 60,  60);   // error red
-        private static readonly Color ColorInputBg     = Color.FromArgb(38,  38,  45);   // input field bg
-        private static readonly Color ColorButtonHover = Color.FromArgb(220, 50,  50);   // red hover
-
-        // ── Fonts ─────────────────────────────────────────────────────────────
-        private static readonly Font FontTitle   = new Font("Segoe UI", 16f, FontStyle.Bold);
-        private static readonly Font FontSubtitle= new Font("Segoe UI", 9f,  FontStyle.Regular);
-        private static readonly Font FontLabel   = new Font("Segoe UI", 9f,  FontStyle.Bold);
-        private static readonly Font FontInput   = new Font("Segoe UI", 10f, FontStyle.Regular);
-        private static readonly Font FontHelper  = new Font("Segoe UI", 8f,  FontStyle.Regular);
-        private static readonly Font FontButton  = new Font("Segoe UI", 10f, FontStyle.Bold);
+        // ── OSWData identifiers — must match OSWLib_Tiltify.cs ────────────────
+        private const string DATA_TOOL = "Tiltify";
+        private const string DATA_FILE = "config";
 
         // ── Controls ──────────────────────────────────────────────────────────
-        private TextBox  _txtClientId;
-        private TextBox  _txtClientSecret;
-        private TextBox  _txtCampaignPublicId;
-        private Button   _btnToggleClientId;
-        private Button   _btnToggleSecret;
-        private Button   _btnVerifySave;
-        private Button   _btnClose;
-        private Label    _lblStatus;
-        private Label    _lblCampaignFound;
-        private Panel    _statusPanel;
-        private Panel    _headerPanel;
+        private TextBox _txtClientId;
+        private TextBox _txtClientSecret;
+        private TextBox _txtCampaignPublicId;
+        private Button  _btnToggleClientId;
+        private Button  _btnToggleSecret;
+        private Button  _btnVerifySave;
+        private Button  _btnClose;
+        private Label   _lblStatus;
+        private Label   _lblCampaignFound;
+        private Panel   _statusPanel;
 
         // Track visibility state for toggle buttons
-        private bool _clientIdVisible  = false;
-        private bool _secretVisible    = false;
+        private bool _clientIdVisible = false;
+        private bool _secretVisible   = false;
+
+        // ── Local fonts ───────────────────────────────────────────────────────
+        // WHY LOCAL INSTEAD OF OSWTheme STATICS?
+        // OSWTheme.Fn* are static readonly Font objects created when the DLL
+        // first loads. If the Streamer.bot AppDomain is reloaded (which happens
+        // on SB restart or code recompile) those GDI handles become invalid.
+        // Assigning an invalid Font to Control.Font calls Font.GetHeight()
+        // which throws System.ArgumentException: "Parameter is not valid."
+        //
+        // Creating fonts fresh inside the form guarantees valid GDI handles
+        // for the lifetime of this window. We use the same typeface and sizes
+        // as OSWTheme so the appearance is identical.
+        // All are disposed in OnFormClosed — no GDI leaks.
+        private Font _fnTitle;   // 15pt Bold  — window title
+        private Font _fnSubtitle;// 9pt Regular — subtitle / header note
+        private Font _fnLabel;   // 9pt Bold    — field labels
+        private Font _fnInput;   // 10pt Regular — text inputs
+        private Font _fnHelper;  // 8pt Italic  — helper/hint text
+        private Font _fnButton;  // 9pt Bold    — buttons
+        private Font _fnToggle;  // 7.5pt       — Show/Hide toggle
 
         // Shared HttpClient for verification calls
         private static readonly HttpClient _http = new HttpClient();
@@ -122,6 +116,15 @@ namespace OSWTools
 
         public TiltifySettingsForm()
         {
+            // Allocate fonts before BuildUI so every helper can reference them
+            _fnTitle    = new Font("Segoe UI", 15f,  FontStyle.Bold);
+            _fnSubtitle = new Font("Segoe UI", 9f,   FontStyle.Regular);
+            _fnLabel    = new Font("Segoe UI", 9f,   FontStyle.Bold);
+            _fnInput    = new Font("Segoe UI", 10f,  FontStyle.Regular);
+            _fnHelper   = new Font("Segoe UI", 8f,   FontStyle.Italic);
+            _fnButton   = new Font("Segoe UI", 9f,   FontStyle.Bold);
+            _fnToggle   = new Font("Segoe UI", 7.5f, FontStyle.Regular);
+
             BuildUI();
             LoadExistingConfig();
         }
@@ -133,154 +136,157 @@ namespace OSWTools
 
         private void BuildUI()
         {
-            // ── Form setup ───────────────────────────────────────────────────
             this.Text            = "OSW — Tiltify Settings";
-            this.Size            = new Size(540, 560);
-            this.MinimumSize     = new Size(540, 560);
-            this.MaximumSize     = new Size(540, 560);
+            this.Size            = new Size(540, 600);
+            this.MinimumSize     = new Size(540, 600);
+            this.MaximumSize     = new Size(540, 600);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox     = false;
             this.StartPosition   = FormStartPosition.CenterScreen;
-            this.BackColor       = ColorBackground;
-            this.ForeColor       = ColorTextPrimary;
+            this.BackColor       = OSWTheme.CBg;
+            this.ForeColor       = OSWTheme.CTxt;
 
-            // ── Header panel (OSW branding bar) ──────────────────────────────
-            _headerPanel = new Panel
-            {
-                Dock      = DockStyle.Top,
-                Height    = 72,
-                BackColor = ColorSurface
-            };
+            // ── Header panel ──────────────────────────────────────────────────
+            // PaintHeaderBg draws CPnl fill + bottom divider line.
+            var header = new Panel { Dock = DockStyle.Top, Height = 80 };
+            header.Paint += OSWTheme.PaintHeaderBg;
 
             // Left red accent strip
-            var accentStrip = new Panel
+            header.Controls.Add(new Panel
             {
                 Width     = 4,
                 Dock      = DockStyle.Left,
-                BackColor = ColorAccentRed
-            };
-            _headerPanel.Controls.Add(accentStrip);
+                BackColor = OSWTheme.CAcc
+            });
 
-            var lblTitle = new Label
+            // StreamWorks logo from embedded resource — null-safe if not embedded
+            var logo = new PictureBox
+            {
+                Size      = new Size(52, 52),
+                Location  = new Point(14, 14),
+                SizeMode  = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent,
+                Image     = OSWTheme.GetEmbeddedLogo()
+            };
+            header.Controls.Add(logo);
+
+            header.Controls.Add(new Label
             {
                 Text      = "Tiltify Integration",
-                Font      = FontTitle,
-                ForeColor = ColorTextPrimary,
+                Font      = _fnTitle,
+                ForeColor = OSWTheme.CTxt,
+                BackColor = Color.Transparent,
                 AutoSize  = false,
-                Location  = new Point(20, 10),
-                Size      = new Size(400, 30)
-            };
-            var lblSubtitle = new Label
+                Location  = new Point(76, 12),
+                Size      = new Size(440, 28)
+            });
+            header.Controls.Add(new Label
             {
-                Text      = "OSUPhoenix StreamWorks  •  Credentials are stored locally and never shared",
-                Font      = FontSubtitle,
-                ForeColor = ColorTextMuted,
+                Text      = "OSUPhoenix StreamWorks  •  Credentials stored in OSWData\\Tiltify\\config.json",
+                Font      = _fnSubtitle,
+                ForeColor = OSWTheme.CDim,
+                BackColor = Color.Transparent,
                 AutoSize  = false,
-                Location  = new Point(20, 42),
-                Size      = new Size(480, 18)
-            };
-            _headerPanel.Controls.Add(lblTitle);
-            _headerPanel.Controls.Add(lblSubtitle);
-            this.Controls.Add(_headerPanel);
+                Location  = new Point(76, 46),
+                Size      = new Size(440, 18)
+            });
+            this.Controls.Add(header);
 
             // ── Main content panel ────────────────────────────────────────────
+            // PaintWatermark renders the StreamWorks logo at 15% opacity.
             var content = new Panel
             {
-                Location  = new Point(0, 72),
-                Size      = new Size(540, 488),
-                BackColor = ColorBackground
+                Location  = new Point(0, 80),
+                Size      = new Size(540, 468),
+                BackColor = OSWTheme.CBg
             };
+            content.Paint += OSWTheme.PaintWatermark;
             this.Controls.Add(content);
 
-            int y = 24; // vertical cursor
+            int y = 20;
 
             // ── Security notice ───────────────────────────────────────────────
             var noticePanel = new Panel
             {
                 Location  = new Point(20, y),
-                Size      = new Size(496, 36),
-                BackColor = Color.FromArgb(40, 200, 40, 40) // subtle red tint
+                Size      = new Size(496, 32),
+                BackColor = OSWTheme.FC("#2A0000")
             };
-            var noticeLabel = new Label
+            noticePanel.Controls.Add(new Label
             {
                 Text      = "⚠  All sensitive fields are hidden by default. Do not share your Client Secret.",
-                Font      = FontHelper,
-                ForeColor = Color.FromArgb(255, 180, 180),
+                Font      = _fnSubtitle,
+                ForeColor = OSWTheme.CWarning,
+                BackColor = Color.Transparent,
                 AutoSize  = false,
-                Location  = new Point(10, 10),
+                Location  = new Point(10, 8),
                 Size      = new Size(476, 16)
-            };
-            noticePanel.Controls.Add(noticeLabel);
+            });
             content.Controls.Add(noticePanel);
-            y += 52;
+            y += 46;
 
             // ── Client ID ─────────────────────────────────────────────────────
             content.Controls.Add(MakeLabel("Client ID", new Point(20, y)));
-            y += 22;
+            y += 20;
 
             (_txtClientId, _btnToggleClientId) = MakeMaskedField(
                 content, new Point(20, y), 456, "Your Tiltify application Client ID");
-            _btnToggleClientId.Click += (s, e) => ToggleVisibility(
-                _txtClientId, _btnToggleClientId, ref _clientIdVisible);
-            y += 40;
+            _btnToggleClientId.Click += (s, e) =>
+                ToggleVisibility(_txtClientId, _btnToggleClientId, ref _clientIdVisible);
+            y += 36;
 
             content.Controls.Add(MakeHelperLabel(
                 "Found at dashboard.tiltify.com → Your Apps → [App Name]",
                 new Point(20, y)));
-            y += 28;
+            y += 24;
 
             // ── Client Secret ─────────────────────────────────────────────────
             content.Controls.Add(MakeLabel("Client Secret", new Point(20, y)));
-            y += 22;
+            y += 20;
 
             (_txtClientSecret, _btnToggleSecret) = MakeMaskedField(
                 content, new Point(20, y), 456, "Your Tiltify application Client Secret");
-            _btnToggleSecret.Click += (s, e) => ToggleVisibility(
-                _txtClientSecret, _btnToggleSecret, ref _secretVisible);
-            y += 40;
+            _btnToggleSecret.Click += (s, e) =>
+                ToggleVisibility(_txtClientSecret, _btnToggleSecret, ref _secretVisible);
+            y += 36;
 
             content.Controls.Add(MakeHelperLabel(
                 "Treat this like a password — never share it or show it on stream",
                 new Point(20, y)));
-            y += 32;
+            y += 28;
 
             // ── Divider ───────────────────────────────────────────────────────
-            var divider = new Panel
+            content.Controls.Add(new Panel
             {
                 Location  = new Point(20, y),
                 Size      = new Size(496, 1),
-                BackColor = ColorBorder
-            };
-            content.Controls.Add(divider);
-            y += 16;
+                BackColor = OSWTheme.CDiv
+            });
+            y += 14;
 
             // ── Campaign Public ID ────────────────────────────────────────────
             content.Controls.Add(MakeLabel("Campaign Public ID", new Point(20, y)));
-            y += 22;
+            y += 20;
 
             _txtCampaignPublicId = new TextBox
             {
                 Location    = new Point(20, y),
-                Size        = new Size(496, 28),
-                Font        = FontInput,
-                BackColor   = ColorInputBg,
-                ForeColor   = ColorTextMuted,   // dimmed until user types
-                BorderStyle = BorderStyle.FixedSingle,
-                Text        = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                Size        = new Size(496, 26),
+                Font        = _fnInput,
+                BackColor   = OSWTheme.CIn,
+                ForeColor   = OSWTheme.CDim,
+                BorderStyle = BorderStyle.FixedSingle
             };
-            // .NET 4.8.1: simulate PlaceholderText with Enter/Leave events
-            ApplyPlaceholder(_txtCampaignPublicId,
-                "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890");
-            StyleInputBorder(_txtCampaignPublicId);
+            ApplyPlaceholder(_txtCampaignPublicId, "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890");
             content.Controls.Add(_txtCampaignPublicId);
-            y += 38;
+            y += 34;
 
-            // Campaign name feedback (populated after successful verify)
             _lblCampaignFound = new Label
             {
                 Text      = "",
-                Font      = FontHelper,
-                ForeColor = ColorSuccess,
+                Font      = _fnSubtitle,
+                ForeColor = OSWTheme.CSuccess,
+                BackColor = Color.Transparent,
                 AutoSize  = false,
                 Location  = new Point(20, y),
                 Size      = new Size(496, 16)
@@ -289,119 +295,109 @@ namespace OSWTools
 
             content.Controls.Add(MakeHelperLabel(
                 "The UUID in your Tiltify campaign URL — not the campaign name",
-                new Point(20, y + 16)));
-            y += 44;
+                new Point(20, y + 17)));
+            y += 42;
 
             // ── Status panel ──────────────────────────────────────────────────
             _statusPanel = new Panel
             {
                 Location  = new Point(20, y),
-                Size      = new Size(496, 36),
-                BackColor = Color.FromArgb(28, 28, 32),
+                Size      = new Size(496, 32),
+                BackColor = OSWTheme.CPnl,
                 Visible   = false
             };
             _lblStatus = new Label
             {
                 Text      = "",
-                Font      = FontHelper,
-                ForeColor = ColorTextPrimary,
+                Font      = _fnSubtitle,
+                ForeColor = OSWTheme.CTxt,
+                BackColor = Color.Transparent,
                 AutoSize  = false,
-                Location  = new Point(10, 10),
+                Location  = new Point(10, 8),
                 Size      = new Size(476, 16)
             };
             _statusPanel.Controls.Add(_lblStatus);
             content.Controls.Add(_statusPanel);
-            y += 44;
+            y += 42;
 
-            // ── Buttons ───────────────────────────────────────────────────────
+            // ── Footer / button row ───────────────────────────────────────────
+            // PaintFooterGradient blends CPnl → CGradBottom (dark red at base).
+            var footer = new Panel
+            {
+                Location  = new Point(0, y),
+                Size      = new Size(540, 468 - y),
+                BackColor = OSWTheme.CPnl
+            };
+            footer.Paint += OSWTheme.PaintFooterGradient;
+            content.Controls.Add(footer);
+
             _btnVerifySave = new Button
             {
                 Text      = "Verify & Save",
-                Location  = new Point(20, y),
-                Size      = new Size(370, 40),
-                Font      = FontButton,
-                BackColor = ColorAccentRed,
-                ForeColor = Color.White,
+                Location  = new Point(20, 16),
+                Size      = new Size(360, 36),
+                Font      = _fnButton,
+                BackColor = OSWTheme.CAcc,
+                ForeColor = OSWTheme.CTxt,
                 FlatStyle = FlatStyle.Flat,
                 Cursor    = Cursors.Hand
             };
-            _btnVerifySave.FlatAppearance.BorderSize      = 0;
-            _btnVerifySave.FlatAppearance.MouseOverBackColor  = ColorButtonHover;
-            _btnVerifySave.FlatAppearance.MouseDownBackColor  = Color.FromArgb(160, 30, 30);
+            _btnVerifySave.FlatAppearance.BorderSize         = 0;
+            _btnVerifySave.FlatAppearance.MouseOverBackColor = OSWTheme.CAccHov;
+            _btnVerifySave.FlatAppearance.MouseDownBackColor = OSWTheme.CAccPrs;
             _btnVerifySave.Click += OnVerifyAndSave;
-            content.Controls.Add(_btnVerifySave);
+            footer.Controls.Add(_btnVerifySave);
 
             _btnClose = new Button
             {
                 Text      = "Close",
-                Location  = new Point(400, y),
-                Size      = new Size(116, 40),
-                Font      = FontButton,
-                BackColor = ColorSurface,
-                ForeColor = ColorTextPrimary,
+                Location  = new Point(390, 16),
+                Size      = new Size(126, 36),
+                Font      = _fnButton,
+                BackColor = OSWTheme.CPnl,
+                ForeColor = OSWTheme.CTxt,
                 FlatStyle = FlatStyle.Flat,
                 Cursor    = Cursors.Hand
             };
             _btnClose.FlatAppearance.BorderSize  = 1;
-            _btnClose.FlatAppearance.BorderColor = ColorBorder;
+            _btnClose.FlatAppearance.BorderColor = OSWTheme.CDiv;
             _btnClose.Click += (s, e) => this.Close();
-            content.Controls.Add(_btnClose);
+            footer.Controls.Add(_btnClose);
         }
 
 
         // =====================================================================
         //  LOAD EXISTING CONFIG
-        //  Pre-populates fields with whatever is already saved.
-        //  Sensitive fields show placeholder dots if a value exists,
-        //  so the user knows something is saved without seeing it.
         // =====================================================================
 
         private void LoadExistingConfig()
         {
             try
             {
-                // Reuse the same load logic from OSWLib_Tiltify.cs via the
-                // config file path. We read it directly here since this form
-                // lives outside OSWLib's instance scope.
-                string path = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "OSWTools", "tiltify_config.json");
+                if (!OSWTools.Data.OSWData.Exists(DATA_TOOL, DATA_FILE)) return;
 
-                if (!System.IO.File.Exists(path)) return;
+                string raw = System.IO.File.ReadAllText(
+                    OSWTools.Data.OSWData.GetFilePath(DATA_TOOL, DATA_FILE));
+                if (string.IsNullOrWhiteSpace(raw)) return;
 
-                string  raw    = System.IO.File.ReadAllText(path);
                 JObject config = JObject.Parse(raw);
 
-                // For sensitive fields: if a value exists, show a placeholder
-                // so the user knows it's saved — they only need to type if
-                // they want to change it
-                string clientId     = config["clientId"]?.ToString()     ?? "";
-                string clientSecret = config["clientSecret"]?.ToString() ?? "";
+                string clientId     = config["clientId"]?.ToString()        ?? "";
+                string clientSecret = config["clientSecret"]?.ToString()     ?? "";
                 string publicId     = config["campaignPublicId"]?.ToString() ?? "";
-                string campaignName = config["campaignName"]?.ToString() ?? "";
+                string campaignName = config["campaignName"]?.ToString()     ?? "";
 
-                if (!string.IsNullOrEmpty(clientId))
-                {
-                    _txtClientId.Text = clientId;
-                    // Already masked via PasswordChar — no extra action needed
-                }
-
-                if (!string.IsNullOrEmpty(clientSecret))
-                    _txtClientSecret.Text = clientSecret;
-
-                if (!string.IsNullOrEmpty(publicId))
-                    _txtCampaignPublicId.Text = publicId;
+                if (!string.IsNullOrEmpty(clientId))     _txtClientId.Text         = clientId;
+                if (!string.IsNullOrEmpty(clientSecret)) _txtClientSecret.Text     = clientSecret;
+                if (!string.IsNullOrEmpty(publicId))     _txtCampaignPublicId.Text = publicId;
 
                 if (!string.IsNullOrEmpty(campaignName))
                 {
-                    _lblCampaignFound.Text = $"✓  Currently configured: \"{campaignName}\"";
-                    _lblCampaignFound.ForeColor = ColorSuccess;
+                    _lblCampaignFound.Text      = $"✓  Currently configured: \"{campaignName}\"";
+                    _lblCampaignFound.ForeColor = OSWTheme.CSuccess;
                 }
             }
-            catch
-            {
-                // If the config can't be read just show empty fields
-            }
+            catch { }
         }
 
 
@@ -411,68 +407,49 @@ namespace OSWTools
 
         private async void OnVerifyAndSave(object sender, EventArgs e)
         {
-            // ── Collect and validate inputs ───────────────────────────────────
-            string clientId    = _txtClientId.Text.Trim();
-            string secret      = _txtClientSecret.Text.Trim();
-            string publicId    = _txtCampaignPublicId.Text.Trim();
+            string clientId = _txtClientId.Text.Trim();
+            string secret   = _txtClientSecret.Text.Trim();
+            string publicId = _txtCampaignPublicId.Text.Trim();
 
             if (string.IsNullOrEmpty(clientId))
-            {
-                ShowStatus("Client ID cannot be empty.", isError: true);
-                return;
-            }
+            { ShowStatus("Client ID cannot be empty.", isError: true); return; }
             if (string.IsNullOrEmpty(secret))
-            {
-                ShowStatus("Client Secret cannot be empty.", isError: true);
-                return;
-            }
+            { ShowStatus("Client Secret cannot be empty.", isError: true); return; }
             if (string.IsNullOrEmpty(publicId))
-            {
-                ShowStatus("Campaign Public ID cannot be empty.", isError: true);
-                return;
-            }
+            { ShowStatus("Campaign Public ID cannot be empty.", isError: true); return; }
 
-            // ── Lock UI during verification ───────────────────────────────────
             _btnVerifySave.Enabled = false;
             _btnVerifySave.Text    = "Verifying...";
             ShowStatus("Connecting to Tiltify...", isError: false);
 
             try
             {
-                // ── Step 1: Get access token ──────────────────────────────────
                 ShowStatus("Step 1 of 2 — Testing credentials...", isError: false);
-
                 string token = await GetAccessTokenAsync(clientId, secret);
                 if (token == null)
                 {
-                    ShowStatus(
-                        "✗  Could not authenticate. Check your Client ID and Client Secret.",
+                    ShowStatus("✗  Could not authenticate. Check your Client ID and Client Secret.",
                         isError: true);
                     return;
                 }
 
-                // ── Step 2: Verify campaign public ID ─────────────────────────
                 ShowStatus("Step 2 of 2 — Verifying campaign...", isError: false);
-
                 string campaignName = await GetCampaignNameAsync(token, publicId);
                 if (campaignName == null)
                 {
-                    ShowStatus(
-                        "✗  Campaign not found. Check your Campaign Public ID (the UUID, not the name).",
+                    ShowStatus("✗  Campaign not found. Check your Campaign Public ID (the UUID, not the name).",
                         isError: true);
                     return;
                 }
 
-                // ── Both verified — save to JSON ──────────────────────────────
                 SaveConfig(clientId, secret, publicId, campaignName, token);
 
                 _lblCampaignFound.Text      = $"✓  Campaign verified: \"{campaignName}\"";
-                _lblCampaignFound.ForeColor = ColorSuccess;
-
-                ShowStatus(
-                    $"✓  Saved! Call TiltifyInitialize() in your startup action to activate.",
+                _lblCampaignFound.ForeColor = OSWTheme.CSuccess;
+                ShowStatus("✓  Saved! Run 'Tiltify - Init' (or restart Streamer.bot) to activate.",
                     isError: false);
-                ShowStatus_Success();
+                _lblStatus.ForeColor   = OSWTheme.CSuccess;
+                _statusPanel.BackColor = OSWTheme.FC("#0A1F0A");
             }
             catch (Exception ex)
             {
@@ -488,9 +465,6 @@ namespace OSWTools
 
         // =====================================================================
         //  API VERIFICATION CALLS
-        //  These mirror TiltifyRefreshToken and TiltifyFetchCampaignInfo from
-        //  OSWLib_Tiltify.cs but are self-contained here since this form runs
-        //  outside of OSWLib's instance. Async/await is safe on the STA UI thread.
         // =====================================================================
 
         private async System.Threading.Tasks.Task<string> GetAccessTokenAsync(
@@ -505,19 +479,14 @@ namespace OSWTools
                     ["client_secret"] = clientSecret,
                     ["scope"]         = "public"
                 };
-
                 var request = new HttpRequestMessage(
                     HttpMethod.Post, "https://v5api.tiltify.com/oauth/token")
                 {
-                    Content = new StringContent(
-                        body.ToString(), Encoding.UTF8, "application/json")
+                    Content = new StringContent(body.ToString(), Encoding.UTF8, "application/json")
                 };
-
-                HttpResponseMessage response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request);
                 if (!response.IsSuccessStatusCode) return null;
-
-                string json  = await response.Content.ReadAsStringAsync();
-                JObject obj  = JObject.Parse(json);
+                var obj = JObject.Parse(await response.Content.ReadAsStringAsync());
                 return obj["access_token"]?.ToString();
             }
             catch { return null; }
@@ -528,17 +497,13 @@ namespace OSWTools
         {
             try
             {
-                var request = new HttpRequestMessage(
-                    HttpMethod.Get,
+                var request = new HttpRequestMessage(HttpMethod.Get,
                     $"https://v5api.tiltify.com/api/public/campaigns/{publicId}");
                 request.Headers.Add("Authorization", "Bearer " + token);
-
-                HttpResponseMessage response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request);
                 if (!response.IsSuccessStatusCode) return null;
-
-                string json    = await response.Content.ReadAsStringAsync();
-                JObject obj    = JObject.Parse(json);
-                JObject data   = obj["data"] as JObject;
+                var obj  = JObject.Parse(await response.Content.ReadAsStringAsync());
+                var data = obj["data"] as JObject;
                 return data?["name"]?.ToString();
             }
             catch { return null; }
@@ -547,51 +512,41 @@ namespace OSWTools
 
         // =====================================================================
         //  CONFIG SAVE
-        //  Writes to %AppData%\OSWTools\tiltify_config.json.
-        //  Preserves any existing poll state fields (seenDonationIds, etc.)
-        //  so verifying credentials doesn't wipe a running session.
         // =====================================================================
 
-        private void SaveConfig(
-            string clientId, string clientSecret,
-            string publicId, string campaignName,
-            string accessToken)
+        private void SaveConfig(string clientId, string clientSecret,
+            string publicId, string campaignName, string accessToken)
         {
-            string path = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "OSWTools", "tiltify_config.json");
+            var existing = OSWTools.Data.OSWData.LoadOrDefault<TiltifyConfigForUI>(
+                DATA_TOOL, DATA_FILE, new TiltifyConfigForUI());
 
-            // Load existing config to preserve poll state fields
-            JObject config = new JObject();
-            if (System.IO.File.Exists(path))
-            {
-                try { config = JObject.Parse(System.IO.File.ReadAllText(path)); }
-                catch { config = new JObject(); }
-            }
+            existing.ClientId         = clientId;
+            existing.ClientSecret     = clientSecret;
+            existing.CampaignPublicId = publicId;
+            existing.CampaignName     = campaignName;
+            existing.AccessToken      = accessToken;
+            existing.TokenExpiresAt   = DateTime.UtcNow.AddSeconds(7200);
 
-            // Update only the credentials and campaign fields
-            config["clientId"]         = clientId;
-            config["clientSecret"]     = clientSecret;
-            config["campaignPublicId"] = publicId;
-            config["campaignName"]     = campaignName;
-            config["accessToken"]      = accessToken;
-            config["tokenExpiresAt"]   = DateTime.UtcNow.AddSeconds(7200).ToString("o");
+            if (existing.SeenDonationIds == null)
+                existing.SeenDonationIds = new System.Collections.Generic.List<string>();
 
-            // Reset poll state when credentials or campaign change —
-            // avoids misfires if the campaign has switched
-            if (config["seenDonationIds"] == null)
-                config["seenDonationIds"] = new JArray();
-            if (config["lastAmountRaised"] == null)
-                config["lastAmountRaised"] = 0;
-            if (config["goalReachedFired"] == null)
-                config["goalReachedFired"] = false;
+            OSWTools.Data.OSWData.Save(DATA_TOOL, DATA_FILE, existing);
+        }
 
-            string dir = System.IO.Path.GetDirectoryName(path);
-            if (!System.IO.Directory.Exists(dir))
-                System.IO.Directory.CreateDirectory(dir);
-
-            System.IO.File.WriteAllText(path,
-                config.ToString(Newtonsoft.Json.Formatting.Indented));
+        [Serializable]
+        private class TiltifyConfigForUI
+        {
+            [JsonProperty("clientId")]         public string   ClientId         { get; set; } = "";
+            [JsonProperty("clientSecret")]     public string   ClientSecret     { get; set; } = "";
+            [JsonProperty("campaignPublicId")] public string   CampaignPublicId { get; set; } = "";
+            [JsonProperty("campaignName")]     public string   CampaignName     { get; set; } = "";
+            [JsonProperty("accessToken")]      public string   AccessToken      { get; set; } = "";
+            [JsonProperty("tokenExpiresAt")]   public DateTime TokenExpiresAt   { get; set; } = DateTime.MinValue;
+            [JsonProperty("seenDonationIds")]
+            public System.Collections.Generic.List<string> SeenDonationIds { get; set; }
+                = new System.Collections.Generic.List<string>();
+            [JsonProperty("lastAmountRaised")] public double LastAmountRaised { get; set; } = 0;
+            [JsonProperty("goalReachedFired")] public bool   GoalReachedFired { get; set; } = false;
         }
 
 
@@ -599,44 +554,33 @@ namespace OSWTools
         //  UI HELPERS
         // =====================================================================
 
-        /// <summary>
-        /// Creates a masked input row (TextBox + show/hide toggle button).
-        /// Returns both controls so the caller can wire up the toggle click.
-        /// </summary>
         private (TextBox input, Button toggle) MakeMaskedField(
             Control parent, Point location, int inputWidth, string placeholder)
         {
             var txt = new TextBox
             {
-                Location        = location,
-                Size            = new Size(inputWidth, 28),
-                Font            = FontInput,
-                BackColor       = ColorInputBg,
-                ForeColor       = ColorTextMuted,   // dimmed until user types
-                BorderStyle     = BorderStyle.FixedSingle,
-                Text            = placeholder
-                // PasswordChar is set AFTER ApplyPlaceholder wires events so it
-                // doesn't mask the placeholder text while it is showing.
+                Location    = location,
+                Size        = new Size(inputWidth, 26),
+                Font        = _fnInput,
+                BackColor   = OSWTheme.CIn,
+                ForeColor   = OSWTheme.CDim,
+                BorderStyle = BorderStyle.FixedSingle
             };
-            // .NET 4.8.1: simulate PlaceholderText with Enter/Leave events.
-            // For a masked field we suppress PasswordChar while placeholder is shown
-            // and restore it when the user enters real content.
             ApplyPlaceholderMasked(txt, placeholder);
-            StyleInputBorder(txt);
             parent.Controls.Add(txt);
 
             var btn = new Button
             {
                 Text      = "Show",
                 Location  = new Point(location.X + inputWidth + 4, location.Y),
-                Size      = new Size(36, 28),
-                Font      = new Font("Segoe UI", 7.5f, FontStyle.Regular),
-                BackColor = ColorSurface,
-                ForeColor = ColorTextMuted,
+                Size      = new Size(36, 26),
+                Font      = _fnToggle,
+                BackColor = OSWTheme.CPnl,
+                ForeColor = OSWTheme.CDim,
                 FlatStyle = FlatStyle.Flat,
                 Cursor    = Cursors.Hand
             };
-            btn.FlatAppearance.BorderColor = ColorBorder;
+            btn.FlatAppearance.BorderColor = OSWTheme.CDiv;
             btn.FlatAppearance.BorderSize  = 1;
             parent.Controls.Add(btn);
 
@@ -645,160 +589,100 @@ namespace OSWTools
 
         private void ToggleVisibility(TextBox txt, Button btn, ref bool isVisible)
         {
-            isVisible    = !isVisible;
+            isVisible        = !isVisible;
             txt.PasswordChar = isVisible ? '\0' : '●';
-            btn.Text     = isVisible ? "Hide" : "Show";
-            btn.ForeColor= isVisible ? ColorAccentRed : ColorTextMuted;
+            btn.Text         = isVisible ? "Hide" : "Show";
+            btn.ForeColor    = isVisible ? OSWTheme.CAcc : OSWTheme.CDim;
         }
 
-        private Label MakeLabel(string text, Point location)
+        private Label MakeLabel(string text, Point location) => new Label
         {
-            return new Label
-            {
-                Text      = text,
-                Font      = FontLabel,
-                ForeColor = ColorAccentSilver,
-                AutoSize  = false,
-                Location  = location,
-                Size      = new Size(496, 18)
-            };
-        }
+            Text      = text,
+            Font      = _fnLabel,
+            ForeColor = OSWTheme.CTxt,
+            BackColor = Color.Transparent,
+            AutoSize  = false,
+            Location  = location,
+            Size      = new Size(496, 18)
+        };
 
-        private Label MakeHelperLabel(string text, Point location)
+        private Label MakeHelperLabel(string text, Point location) => new Label
         {
-            return new Label
-            {
-                Text      = text,
-                Font      = FontHelper,
-                ForeColor = ColorTextMuted,
-                AutoSize  = false,
-                Location  = location,
-                Size      = new Size(496, 14)
-            };
-        }
-
-        private void StyleInputBorder(TextBox txt)
-        {
-            // WinForms doesn't support custom border colors on TextBox natively.
-            // The nearest approach is BorderStyle.FixedSingle with BackColor
-            // providing the visual contrast. A Panel wrapper would give a custom
-            // border — adding that pattern here if needed in a future iteration.
-            txt.BorderStyle = BorderStyle.FixedSingle;
-        }
+            Text      = text,
+            Font      = _fnHelper,
+            ForeColor = OSWTheme.CDim,
+            BackColor = Color.Transparent,
+            AutoSize  = false,
+            Location  = location,
+            Size      = new Size(496, 14)
+        };
 
         private void ShowStatus(string message, bool isError)
         {
-            _lblStatus.Text      = message;
-            _lblStatus.ForeColor = isError ? ColorError : ColorTextPrimary;
-            _statusPanel.Visible = true;
-            _statusPanel.BackColor = isError
-                ? Color.FromArgb(40, 220, 40, 40)
-                : Color.FromArgb(28, 28, 32);
-        }
-
-        private void ShowStatus_Success()
-        {
-            _lblStatus.ForeColor   = ColorSuccess;
-            _statusPanel.BackColor = Color.FromArgb(30, 60, 180, 90);
+            _lblStatus.Text        = message;
+            _lblStatus.ForeColor   = isError ? OSWTheme.CError : OSWTheme.CTxt;
+            _statusPanel.Visible   = true;
+            _statusPanel.BackColor = isError ? OSWTheme.FC("#2A0000") : OSWTheme.CPnl;
         }
 
         // ── .NET 4.8.1 placeholder helpers ───────────────────────────────────
-        // TextBox.PlaceholderText was introduced in .NET 5.
-        // These methods replicate the same visual behaviour using Enter/Leave
-        // events so the form compiles against net481 without any change to callers.
 
-        /// <summary>
-        /// Simulates placeholder text on a plain TextBox.
-        /// The placeholder is shown in ColorTextMuted when the field is empty.
-        /// The field is considered "empty" if it contains exactly the placeholder string.
-        /// </summary>
         private void ApplyPlaceholder(TextBox txt, string placeholder)
         {
-            // Initialise: if the field already has a real value, show it normally.
-            if (string.IsNullOrEmpty(txt.Text) || txt.Text == placeholder)
-            {
-                txt.Text      = placeholder;
-                txt.ForeColor = ColorTextMuted;
-            }
-            else
-            {
-                txt.ForeColor = ColorTextPrimary;
-            }
+            txt.Text      = placeholder;
+            txt.ForeColor = OSWTheme.CDim;
 
             txt.Enter += (s, e) =>
             {
                 if (txt.Text == placeholder)
-                {
-                    txt.Text      = string.Empty;
-                    txt.ForeColor = ColorTextPrimary;
-                }
+                { txt.Text = string.Empty; txt.ForeColor = OSWTheme.CTxt; }
             };
-
             txt.Leave += (s, e) =>
             {
                 if (string.IsNullOrWhiteSpace(txt.Text))
-                {
-                    txt.Text      = placeholder;
-                    txt.ForeColor = ColorTextMuted;
-                }
+                { txt.Text = placeholder; txt.ForeColor = OSWTheme.CDim; }
             };
         }
 
-        /// <summary>
-        /// Simulates placeholder text on a masked (password) TextBox.
-        /// While the placeholder is showing, PasswordChar is suppressed so the
-        /// hint text is readable. Once the user starts typing, PasswordChar ('●')
-        /// is restored and the field behaves as a normal masked input.
-        /// </summary>
         private void ApplyPlaceholderMasked(TextBox txt, string placeholder)
         {
-            // Show placeholder unmasked initially
             txt.Text         = placeholder;
-            txt.ForeColor    = ColorTextMuted;
-            txt.PasswordChar = '\0'; // no masking while placeholder is visible
+            txt.ForeColor    = OSWTheme.CDim;
+            txt.PasswordChar = '\0';
 
             txt.Enter += (s, e) =>
             {
                 if (txt.Text == placeholder)
                 {
                     txt.Text         = string.Empty;
-                    txt.ForeColor    = ColorTextPrimary;
-                    txt.PasswordChar = '●'; // restore masking for real input
+                    txt.ForeColor    = OSWTheme.CTxt;
+                    txt.PasswordChar = '●';
                 }
             };
-
             txt.Leave += (s, e) =>
             {
                 if (string.IsNullOrWhiteSpace(txt.Text))
                 {
-                    txt.PasswordChar = '\0'; // suppress masking so hint is visible
+                    txt.PasswordChar = '\0';
                     txt.Text         = placeholder;
-                    txt.ForeColor    = ColorTextMuted;
+                    txt.ForeColor    = OSWTheme.CDim;
                 }
             };
         }
 
-        /// <summary>
-        /// Returns the actual text content of a TextBox, returning empty string
-        /// if the field is still showing its placeholder text.
-        /// Use this instead of .Text directly when reading user input.
-        /// </summary>
-        private static string GetFieldValue(TextBox txt, string placeholder)
-        {
-            string v = txt.Text?.Trim() ?? string.Empty;
-            return v == placeholder ? string.Empty : v;
-        }
+        // ── Cleanup ───────────────────────────────────────────────────────────
 
-        // ── Clean up fonts on form close ──────────────────────────────────────
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             base.OnFormClosed(e);
-            FontTitle.Dispose();
-            FontSubtitle.Dispose();
-            FontLabel.Dispose();
-            FontInput.Dispose();
-            FontHelper.Dispose();
-            FontButton.Dispose();
+            // Dispose only the fonts this form created — not OSWTheme statics
+            _fnTitle?.Dispose();
+            _fnSubtitle?.Dispose();
+            _fnLabel?.Dispose();
+            _fnInput?.Dispose();
+            _fnHelper?.Dispose();
+            _fnButton?.Dispose();
+            _fnToggle?.Dispose();
         }
     }
 }

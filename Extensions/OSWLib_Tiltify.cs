@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
@@ -44,12 +43,20 @@ namespace OSWTools
     //    ClientId + ClientSecret → POST /oauth/token → access_token (2hr TTL)
     //  Token is cached in JSON and auto-refreshed when near expiry.
     //
-    //  ── CREDENTIAL SECURITY NOTE ─────────────────────────────────────────────
-    //  ClientId and ClientSecret are stored in plain text in a local JSON file
-    //  at %AppData%\OSWTools\tiltify_config.json. Do not share this file.
+    //  ── CREDENTIAL STORAGE ───────────────────────────────────────────────────
+    //  ClientId and ClientSecret are stored in plain text at:
+    //    <Streamer.bot folder>\OSWData\Tiltify\config.json
+    //  Do not share this file. Consistent with all other OSW tool data storage.
     //
-    //  ── CHANGELOG (v2) ───────────────────────────────────────────────────────
-    //  Fixes identified by comparing against community Tiltify SB scripts:
+    //  ── CHANGELOG ────────────────────────────────────────────────────────────
+    //  v3:
+    //  • Config storage moved from %AppData%\OSWTools\ to OSWData\Tiltify\
+    //    via OSWData.Save/LoadOrDefault — consistent with all other OSW tools
+    //  • Removed TiltifyConfigPath, raw File.ReadAllText/WriteAllText, and the
+    //    System.IO.Path.Combine(%AppData%) pattern entirely
+    //  • System.IO using directive removed (no longer needed in this file)
+    //
+    //  v2:
     //  • Field name corrected: amount_raised (not total_amount_raised)
     //  • completed_before timestamp filter added to donation query to exclude
     //    pending/processing donations that aren't yet confirmed
@@ -66,6 +73,13 @@ namespace OSWTools
         private const string TILTIFY_TOKEN_URL = "https://v5api.tiltify.com/oauth/token";
         private const string TILTIFY_API_BASE  = "https://v5api.tiltify.com/api/public";
 
+        // ── OSWData tool/file names ───────────────────────────────────────────
+        // Config is stored at: <SB folder>\OSWData\Tiltify\config.json
+        // Consistent with all other OSW tool data (SAS uses "SAS", etc.)
+
+        private const string TILTIFY_DATA_TOOL = "Tiltify";
+        private const string TILTIFY_DATA_FILE = "config";
+
         // ── SB Custom Event Names ─────────────────────────────────────────────
         // Internal C# names used with TriggerCodeEvent().
         // Display names shown in SB UI are set in TiltifyRegisterTriggers().
@@ -80,16 +94,10 @@ namespace OSWTools
 
         private static readonly HttpClient _tiltifyHttp = new HttpClient();
 
-        // ── Config File Path ──────────────────────────────────────────────────
-
-        private static string TiltifyConfigPath => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "OSWTools", "tiltify_config.json");
-
 
         // =====================================================================
         //  Config Data Model
-        //  Serialized to/from %AppData%\OSWTools\tiltify_config.json
+        //  Serialized to/from OSWData\Tiltify\config.json via OSWData.Save/Load
         // =====================================================================
 
         private class TiltifyConfig
@@ -488,13 +496,13 @@ namespace OSWTools
                 double percent = goal > 0 ? Math.Round((amountRaised / goal) * 100, 1) : 0;
 
                 // ── Campaign Updated trigger ──────────────────────────────────
-                _CPH.SetArgument("campaignPublicId",  config.CampaignPublicId);
-                _CPH.SetArgument("campaignName",       config.CampaignName);
-                _CPH.SetArgument("amountRaised",       amountRaised);
-                _CPH.SetArgument("goalAmount",         goal);
-                _CPH.SetArgument("currency",           currency);
-                _CPH.SetArgument("percentToGoal",      percent);
-                _CPH.SetArgument("campaignStatus",     status);
+                _CPH.SetArgument("campaignPublicId", config.CampaignPublicId);
+                _CPH.SetArgument("campaignName",     config.CampaignName);
+                _CPH.SetArgument("amountRaised",     amountRaised);
+                _CPH.SetArgument("goalAmount",       goal);
+                _CPH.SetArgument("currency",         currency);
+                _CPH.SetArgument("percentToGoal",    percent);
+                _CPH.SetArgument("campaignStatus",   status);
                 _CPH.TriggerCodeEvent(TILTIFY_EVT_CAMPAIGN_UPDATED, false);
 
                 // ── Goal Reached trigger (fires once per campaign reset) ───────
@@ -555,24 +563,24 @@ namespace OSWTools
                 }
             }
 
-            string rewardIdFirst    = rewardIds.Count > 0 ? rewardIds[0] : "";
-            string rewardIdsJoined  = string.Join(",", rewardIds);
+            string rewardIdFirst   = rewardIds.Count > 0 ? rewardIds[0] : "";
+            string rewardIdsJoined = string.Join(",", rewardIds);
 
             // ── Set all SB arguments ──────────────────────────────────────────
-            _CPH.SetArgument("donationId",        donation["id"]?.ToString() ?? "");
-            _CPH.SetArgument("donorName",          donorName);
-            _CPH.SetArgument("donorComment",       donation["donor_comment"]?.ToString() ?? "");
-            _CPH.SetArgument("donationAmount",     amount);
-            _CPH.SetArgument("donationCurrency",   currency);
-            _CPH.SetArgument("campaignPublicId",   config.CampaignPublicId);
-            _CPH.SetArgument("campaignName",       config.CampaignName);
-            _CPH.SetArgument("completedAt",        donation["completed_at"]?.ToString() ?? "");
-            _CPH.SetArgument("isAnonymous",        isAnonymous);
-            _CPH.SetArgument("rewardId",           rewardIdFirst);    // first reward (compat)
-            _CPH.SetArgument("rewardIds",          rewardIdsJoined);  // all rewards, comma-sep
-            _CPH.SetArgument("rewardClaimCount",   rewardIds.Count);
-            _CPH.SetArgument("pollOptionId",       donation["poll_option_id"]?.ToString() ?? "");
-            _CPH.SetArgument("challengeId",        donation["challenge_id"]?.ToString() ?? "");
+            _CPH.SetArgument("donationId",       donation["id"]?.ToString() ?? "");
+            _CPH.SetArgument("donorName",         donorName);
+            _CPH.SetArgument("donorComment",      donation["donor_comment"]?.ToString() ?? "");
+            _CPH.SetArgument("donationAmount",    amount);
+            _CPH.SetArgument("donationCurrency",  currency);
+            _CPH.SetArgument("campaignPublicId",  config.CampaignPublicId);
+            _CPH.SetArgument("campaignName",      config.CampaignName);
+            _CPH.SetArgument("completedAt",       donation["completed_at"]?.ToString() ?? "");
+            _CPH.SetArgument("isAnonymous",       isAnonymous);
+            _CPH.SetArgument("rewardId",          rewardIdFirst);   // first reward (compat)
+            _CPH.SetArgument("rewardIds",         rewardIdsJoined); // all rewards, comma-sep
+            _CPH.SetArgument("rewardClaimCount",  rewardIds.Count);
+            _CPH.SetArgument("pollOptionId",      donation["poll_option_id"]?.ToString() ?? "");
+            _CPH.SetArgument("challengeId",       donation["challenge_id"]?.ToString() ?? "");
 
             // Ready-to-use formatted string for chat messages / alert text
             string formatted = isAnonymous
@@ -618,8 +626,8 @@ namespace OSWTools
                     Content = new StringContent(body.ToString(), Encoding.UTF8, "application/json")
                 };
 
-                HttpResponseMessage response  = _tiltifyHttp.SendAsync(request).Result;
-                string              respBody  = response.Content.ReadAsStringAsync().Result;
+                HttpResponseMessage response = _tiltifyHttp.SendAsync(request).Result;
+                string              respBody = response.Content.ReadAsStringAsync().Result;
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -704,7 +712,7 @@ namespace OSWTools
                 config.LastAmountRaised = TiltifyParseAmount(data["amount_raised"]);
 
                 LogInfo($"TiltifyFetchCampaignInfo: \"{config.CampaignName}\" — " +
-                        $"{TiltifyParseAmount(data["amount_raised"]?["currency"]) } " +
+                        $"{data["amount_raised"]?["currency"]} " +
                         $"{config.LastAmountRaised:F2} raised so far.");
                 return true;
             }
@@ -733,31 +741,33 @@ namespace OSWTools
 
         // =====================================================================
         //  PRIVATE — CONFIG PERSISTENCE
+        //
+        //  Uses OSWData.Save/LoadOrDefault — the same pattern used by every
+        //  other OSW tool. Config lands at:
+        //    <Streamer.bot folder>\OSWData\Tiltify\config.json
+        //
+        //  OSWData handles:
+        //    • Resolving the path relative to Streamer.bot's base directory
+        //    • Creating the OSWData\Tiltify\ folder if it doesn't exist
+        //    • Atomic writes (.tmp → swap, .bak retained)
+        //    • Safe fallback to a fresh TiltifyConfig() if the file is missing
+        //      or corrupt (LoadOrDefault never throws)
         // =====================================================================
 
         private static TiltifyConfig TiltifyLoadConfig()
         {
-            try
-            {
-                if (!File.Exists(TiltifyConfigPath))
-                    return new TiltifyConfig();
-
-                string json = File.ReadAllText(TiltifyConfigPath);
-                return JsonConvert.DeserializeObject<TiltifyConfig>(json) ?? new TiltifyConfig();
-            }
-            catch
-            {
-                return new TiltifyConfig();
-            }
+            // LoadOrDefault returns the fallback (new TiltifyConfig()) if the
+            // file doesn't exist yet — no need for an existence check here.
+            return OSWTools.Data.OSWData.LoadOrDefault<TiltifyConfig>(
+                TILTIFY_DATA_TOOL,
+                TILTIFY_DATA_FILE,
+                new TiltifyConfig());
         }
 
         private static void TiltifySaveConfig(TiltifyConfig config)
         {
-            string dir = Path.GetDirectoryName(TiltifyConfigPath);
-            if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-
-            File.WriteAllText(TiltifyConfigPath, JsonConvert.SerializeObject(config, Formatting.Indented));
+            // Save handles folder creation and atomic writes automatically.
+            OSWTools.Data.OSWData.Save(TILTIFY_DATA_TOOL, TILTIFY_DATA_FILE, config);
         }
     }
 }
