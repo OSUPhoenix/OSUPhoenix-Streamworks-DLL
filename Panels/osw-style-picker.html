@@ -1,0 +1,1169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSW Style Picker</title>
+<!--
+  OSW Style Picker
+  ----------------
+  Opened by OSWTools.dll (OSWPanels.OpenPicker) from a widget's "Edit look"
+  button. Lives in <Streamer.bot>/OSWData/osw-panels/, unpacked from the DLL,
+  next to the library files and picker-config.js (written by the DLL each
+  time the picker opens: which widget, how to reach Streamer.bot, and where
+  each registered overlay lives).
+
+  How it works (contract: INTEGRATION.md)
+    - Asks the "OSW Panels" action for the widget list (widgets.json) and
+      each widget's saved look (OSWData/<folder>/look.json). Answers come back
+      as broadcasts carrying the same requestId.
+    - Shows the REAL overlay in a frame and sends it the unsaved look to
+      show (postMessage 'osw-style-preview'), so what you see is what goes
+      on stream.
+    - Save calls the "OSW Panels" action (op: save), then waits for the
+      OSW_Style broadcast to come back as confirmation.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Graduate&family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="osw-panels.css">
+<style>
+  /* OSUPhoenix Streamworks theme: black surfaces, silver for structure
+     (rules, borders, tab markers, like the steel ring in the logo), and red
+     kept for what matters: the primary action, the current selection, focus.
+     Using red sparingly is what keeps it looking classy instead of loud.
+     Layout: top bar, then preview + actions on the left, tabbed pickers on
+     the right. One dark theme on purpose: looks are judged against stream footage. */
+  :root {
+    --ink: #0a0a0b; --raised: #141415; --sunken: #070708; --line: #29292c; --line-2: #3a3a3e;
+    --fg: #eeeff1; --muted: #9b9ea5;
+    --red: #e0121d; --red-hi: #ff2b36; --red-deep: #8f0a12;   /* logo red is #ff0000; deepened for large fills */
+    --silver-1: #f3f4f6; --silver-2: #bcc0c6; --silver-3: #7c8189;
+    --metal: linear-gradient(180deg, var(--silver-1), var(--silver-2) 48%, var(--silver-3));
+    --brand: var(--red);
+    --ok: #46c47d; --warn: #e8b04a; --bad: #ff4d5b;
+    --f-mark: "Graduate", "Rockwell", Georgia, serif;          /* the logo's collegiate lettering; wordmark only */
+    --f-display: "Barlow Semi Condensed", "Segoe UI", system-ui, sans-serif;
+    --f-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "JetBrains Mono", Consolas, ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--ink); color: var(--fg); font: 14px/1.45 var(--f-body); }
+  button, select, input { font: inherit; color: inherit; }
+  button { background: var(--sunken); border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; cursor: pointer; font-weight: 600; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  /* Primary: a red with a slight top-light bevel, like the enamel in the logo. */
+  button.primary { background: linear-gradient(180deg, var(--red-hi), var(--red) 45%, #b80d17); border-color: #b80d17; color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 1px 0 rgba(0,0,0,.6); text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  button.primary:hover:not(:disabled) { border-color: var(--silver-2); }
+  select, input[type=text], input[type=number] { background: var(--sunken); border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px; min-width: 0; }
+  input[type=range] { accent-color: var(--brand); width: 100%; }
+  input[type=color] { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 3px; background: var(--sunken); flex: 0 0 auto; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  code, .mono { font-family: var(--f-mono); font-size: 12px; }
+
+  /* ---- top bar ---- */
+  .top { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px 18px; background: #000; }
+  /* Brushed-silver rule: the metal gradient, with faint vertical streaks on top. */
+  .top::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,.18) 0 1px, transparent 1px 3px), var(--metal); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 48px; height: 48px; display: block; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.05; }
+  .brand-text .mark { font: 400 15px var(--f-mark); letter-spacing: .08em; color: var(--red-hi); text-shadow: 0 1px 0 #000; }
+  .brand-text .mark span { color: var(--silver-2); }
+  .brand-text h1 { margin: 2px 0 0; font: 600 18px var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--fg); }
+  .top .spacer { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 4px 11px; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .chip { border-color: var(--line-2); }
+  .chip.ok i { background: var(--ok); }
+  .chip.bad { color: var(--bad); border-color: rgba(255, 77, 91, .45); } .chip.warn i { background: var(--warn); } .chip.bad i { background: var(--bad); }
+  .field-inline { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+
+  /* ---- layout ---- */
+  .main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr); gap: 16px; padding: 16px 18px 28px; align-items: start; }
+  @media (max-width: 980px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ---- preview ---- */
+  .stage { position: relative; height: 300px; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+  /* color-scheme: light matches the overlay page inside. When a frame and
+     its page disagree on color scheme, Chrome paints the frame an opaque
+     white instead of letting the stage background show through. */
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: light; }
+  /* "Stream": two contrasting glows on near-black, crimson against cool
+     steel, the brand's red and silver, so a look can be judged against both. */
+  .stage.bg-dark { background:
+      radial-gradient(circle at 18% 28%, rgba(224,18,29,.30), transparent 46%),
+      radial-gradient(circle at 82% 74%, rgba(196,206,220,.30), transparent 48%),
+      linear-gradient(160deg, #151517, #0a0a0b 58%, #170a0c); }
+  .stage.bg-light { background: linear-gradient(160deg, #f1f2f4, #c4c8ce); }
+  .stage.bg-checker { background: repeating-conic-gradient(#2b2b2e 0 25%, #1c1c1e 0 50%) 0 0 / 22px 22px; }
+  .stage.bg-green { background: #00b140; }
+  .stage-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: var(--sunken); color: var(--muted); padding: 4px 10px; font-weight: 500; }
+  .seg button[aria-pressed=true] { background: var(--metal); color: #111; font-weight: 600; }
+  /* Startup / problem notes shown over the preview. */
+  .diag { position: absolute; left: 12px; top: 12px; right: 12px; display: grid; gap: 3px; padding: 10px 12px; z-index: 2;
+    background: rgba(5, 5, 6, .88); border: 1px solid var(--line-2); border-left: 3px solid var(--silver-2); border-radius: 3px; font-size: 13px; }
+  .diag.bad { border-left-color: var(--red); }
+  .diag b { font: 600 13.5px var(--f-display); letter-spacing: .03em; }
+  .diag span { color: var(--muted); }
+  .diag code { color: var(--silver-3); font-size: 11.5px; word-break: break-all; }
+  .diag code:empty { display: none; }
+  .fallback-note { position: absolute; left: 12px; top: 10px; right: 12px; font-size: 12.5px; color: var(--muted); }
+  .stage > .osw-panel.fallback { position: absolute; left: 40px; bottom: 40px; width: min(560px, calc(100% - 80px)); height: 88px; }
+
+  /* ---- action card ---- */
+  .card { background: var(--raised); border: 1px solid var(--line); border-top-color: var(--line-2); border-radius: 4px; padding: 14px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+  .actions { margin-top: 14px; display: grid; gap: 12px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .status { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+  .status.ok { color: var(--ok); } .status.warn { color: var(--warn); } .status.bad { color: var(--bad); }
+  .dirty-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 6px; vertical-align: 1px; }
+  .sub-head { font: 600 12.5px var(--f-display); text-transform: uppercase; letter-spacing: .12em; color: var(--silver-2); margin: 0 0 6px; }
+  .toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+
+  /* ---- tabs + pickers ---- */
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -14px -14px 12px; padding: 6px 8px 0; }
+  .tabs button { position: relative; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 9px 9px;
+    font: 600 13.5px var(--f-display); letter-spacing: .05em; text-transform: uppercase; }
+  .tabs button[aria-selected=true] { color: var(--fg); }
+  .tabs button[aria-selected=true]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--metal); }
+  .pane { display: grid; gap: 14px; }
+  /* grid-auto-rows: max-content: rows always fit their card. Without it, a
+     card with overflow:hidden is allowed to shrink below its content inside
+     this scrolling grid, and the labels get cut off. */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); grid-auto-rows: max-content; gap: 8px; max-height: 470px; overflow-y: auto; padding: 2px 4px 4px 2px; }
+  .sw { display: flex; flex-direction: column; padding: 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; text-align: left; font-weight: 500; }
+  .sw:hover { border-color: var(--line-2); }
+  .sw.on { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset, 0 0 14px rgba(224,18,29,.25); }
+  .sw.on span { color: var(--fg); }
+  .sw .mini { height: 74px; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 18px 16px 14px;
+    background: radial-gradient(circle at 25% 20%, rgba(224,18,29,.10), transparent 55%), linear-gradient(160deg, #1c1c1f, #0c0c0d); overflow: hidden; }
+  .sw .mini > .osw-panel { width: 100%; height: 36px; font-size: 9px; --osw-icon-size: 22px; --osw-pad-y: 4px; --osw-pad-x: 9px; --osw-chamfer: 12px; --osw-notch: 9px; --osw-tab-h: 8px; --osw-wing-w: 14px; --osw-radius: 9px; --osw-step: 6px; --osw-scoop: 9px; --osw-cut: 6px; }
+  .sw .mini .osw-icon > svg { width: 60%; height: 60%; }
+  .sw span { padding: 6px 9px 7px; font: 500 13px var(--f-display); letter-spacing: .02em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .group-label { grid-column: 1 / -1; font: 600 12px var(--f-display); color: var(--silver-3); text-transform: uppercase; letter-spacing: .12em; margin-top: 4px; }
+
+  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+  .fields .full { grid-column: 1 / -1; }
+  .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .f > span:first-child { font: 600 11.5px var(--f-display); text-transform: uppercase; letter-spacing: .1em; color: var(--silver-2); display: flex; justify-content: space-between; gap: 6px; }
+  .f .reset { background: none; border: 0; padding: 0; color: var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; font-weight: 500; text-decoration: underline; }
+  .pair { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .pair > input[type=text] { flex: 1; }
+  .is-default { color: var(--muted); font-style: italic; }
+  output { font-family: var(--f-mono); font-size: 11.5px; color: var(--fg); }
+
+  /* ---- color themes ---- */
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .theme { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 1px 10px; align-items: center; text-align: left; padding: 9px 11px; }
+  .theme .dots { grid-row: 1 / 3; display: flex; }
+  .theme .dots i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,.25); margin-left: -5px; }
+  .theme .dots i:first-child { margin-left: 0; }
+  .theme .t-name { font: 600 14px var(--f-display); letter-spacing: .03em; }
+  .theme .t-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  /* ---- connect form (only when opened without a config) ---- */
+  .connect { margin: 16px 18px 0; }
+  .connect .row input { width: 120px; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--metal); color: var(--ink); font-weight: 600; padding: 8px 14px; border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<!-- Written by OSWTools.dll when it opens the picker. If it's missing (the
+     page was opened by hand), the picker shows a connection form instead. -->
+<script src="picker-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@streamerbot/client/dist/streamerbot-client.js"></script>
+<script src="osw-panels.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <!-- The Streamworks mark, embedded so the picker works offline. -->
+    <img alt="" src="data:image/png;base64,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">
+    <div class="brand-text"><span class="mark">OSUPHOENIX <span>STREAMWORKS</span></span><h1>Style Picker</h1></div>
+  </div>
+  <label class="field-inline" for="widget">Widget <select id="widget"></select></label>
+  <button type="button" id="refresh" title="Ask Streamer.bot again for the registered widgets">Refresh</button>
+  <span class="spacer"></span>
+  <span class="chip" id="conn"><i></i><span>Not connected</span></span>
+  <span class="chip mono" id="libver" title="Panel library version">library –</span>
+</header>
+
+<section class="card connect" id="connect" hidden>
+  <p class="sub-head">Connect to Streamer.bot</p>
+  <p class="hint" style="margin:0 0 10px">This page was opened without its settings file. Open it with the <b>Edit look</b> button in Streamer.bot, or enter the WebSocket server details below.</p>
+  <div class="row">
+    <label class="field-inline" for="c-host">Host <input type="text" id="c-host" value="127.0.0.1"></label>
+    <label class="field-inline" for="c-port">Port <input type="number" id="c-port" value="8080"></label>
+    <label class="field-inline" for="c-pass">Password <input type="text" id="c-pass" value="" placeholder="if enabled"></label>
+    <button type="button" class="primary" id="c-go">Connect</button>
+  </div>
+</section>
+
+<main class="main">
+  <!-- LEFT: preview + actions -->
+  <div>
+    <div class="stage bg-dark" id="stage">
+      <iframe id="frame" title="Live overlay preview"></iframe>
+      <div class="diag" id="diag" role="status" hidden><b id="diag-title"></b><span id="diag-text"></span><code id="diag-path"></code></div>
+    </div>
+    <div class="stage-bar">
+      <span id="stage-note">Live preview</span>
+      <span class="seg" role="group" aria-label="Preview background">
+        <button type="button" data-bg="dark" aria-pressed="true">Stream</button>
+        <button type="button" data-bg="checker" aria-pressed="false">Checker</button>
+        <button type="button" data-bg="light" aria-pressed="false">Light</button>
+        <button type="button" data-bg="green" aria-pressed="false">Green</button>
+      </span>
+    </div>
+
+    <div class="card actions">
+      <div class="row">
+        <button type="button" class="primary" id="save" disabled>Save look</button>
+        <button type="button" id="revert" disabled>Undo changes</button>
+        <button type="button" id="use-settings" title="Remove the saved look. The widget goes back to its own Streamer.bot settings.">Use Streamer.bot settings</button>
+      </div>
+      <div class="status" id="status" role="status"></div>
+
+      <div>
+        <p class="sub-head">Apply to all widgets</p>
+        <div class="row">
+          <label class="toggle" for="all-on"><input type="checkbox" id="all-on"> When saving, also update the other widgets with</label>
+          <select id="all-level" aria-label="What to copy to the other widgets">
+            <option value="theme">colors &amp; fonts</option>
+            <option value="look">the entire look</option>
+          </select>
+        </div>
+        <p class="hint" id="all-hint">Each widget keeps its own saved look; this only copies to them when you save.</p>
+      </div>
+
+      <div>
+        <p class="sub-head">Test an alert</p>
+        <div class="row">
+          <select id="t-burst" aria-label="Burst to play with the test alert">
+            <option value="">No burst</option>
+            <option value="impact">Impact</option>
+            <option value="shockwave">Shockwave</option>
+            <option value="gems">Gems</option>
+            <option value="confetti">Confetti</option>
+            <option value="coins">Coins</option>
+            <option value="impact,shockwave,gems">Impact + shockwave + gems</option>
+          </select>
+          <label class="field-inline" for="t-amount">Amount <input type="number" id="t-amount" value="500" min="0" style="width:90px"></label>
+          <button type="button" id="t-go">Play test alert</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: pickers -->
+  <section class="card">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div id="panes"></div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const P = window.OSWPanels;
+  const CFG = window.OSW_PICKER || null;
+
+  // ---------------------------------------------------------------------------
+  // STATE
+  //   saved[id]  the widget's saved style (null = using its Streamer.bot settings)
+  //   look       the style being edited (what the preview shows)
+  //   base       what `look` started from, for "Undo changes" and the dirty check
+  // ---------------------------------------------------------------------------
+  let client = null, connected = false;
+  const widgets = (CFG && CFG.widgets) || {};
+  let current = (CFG && CFG.widget) || Object.keys(widgets)[0] || null;
+  const saved = {};
+  let look = {}, base = {}, baseFrom = 'none';
+  const clone = (o) => JSON.parse(JSON.stringify(o || {}));
+  const same = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
+  function sortKeys(o) {
+    if (Array.isArray(o)) return o.map(sortKeys);
+    if (!o || typeof o !== 'object') return o;
+    return Object.keys(o).sort().reduce((r, k) => (r[k] = sortKeys(o[k]), r), {});
+  }
+
+  if (!P) {
+    document.body.innerHTML = '<p style="padding:24px">The panel library (osw-panels.js) is missing next to this page. Open the picker with the <b>Edit look</b> button in Streamer.bot so OSWTools.dll can set it up.</p>';
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CONNECTION
+  // ---------------------------------------------------------------------------
+  function setConn(kind, text) {
+    const c = $('conn');
+    c.className = 'chip ' + kind;
+    c.querySelector('span').textContent = text;
+  }
+  function connect(host, port, password) {
+    if (typeof StreamerbotClient === 'undefined') {
+      setConn('bad', 'Streamer.bot client failed to load');
+      status('The Streamer.bot client script could not load (it comes from cdn.jsdelivr.net). Check your internet connection.', 'bad');
+      return;
+    }
+    setConn('warn', 'Connecting…');
+    client = new StreamerbotClient({
+      host, port: Number(port) || 8080, password: password || '',
+      subscribe: { General: ['Custom'] },
+      onConnect: async () => {
+        connected = true;
+        setConn('ok', `Connected · ${host}:${port}`);
+        $('connect').hidden = true;
+        try { await client.subscribe({ General: ['Custom'] }); } catch (e) { /* events may still arrive */ }
+        await checkLibrary();
+        await discoverWidgets();
+        await loadAllSaved();
+        await showCurrent();
+      },
+      onDisconnect: () => { connected = false; setConn('bad', 'Disconnected · retrying'); refreshButtons(); },
+      onError: () => setConn('bad', 'Can’t reach Streamer.bot'),
+    });
+    client.on('General.Custom', onCustom);
+  }
+
+  // One global's value, or null if it doesn't exist (or Streamer.bot doesn't
+  // answer within 8 seconds).
+  async function getVal(name, persisted) {
+    let timer;
+    const timeout = new Promise((res) => { timer = setTimeout(() => res(null), 8000); });
+    try {
+      const r = await Promise.race([client.getGlobal(name, persisted), timeout]);
+      return r && r.variable ? r.variable.value : null;
+    } catch (e) { return null; } finally { clearTimeout(timer); }
+  }
+
+  // Is the panel library set up in Streamer.bot? If not, ask the "OSW Panels"
+  // action to do it (same self-healing the overlays use), then check again.
+  let libReady = false;
+  async function checkLibrary() {
+    let v = await getVal('OSW_Lib_Version', false);
+    if (!v) {
+      try { await client.doAction({ name: 'OSW Panels' }, { op: 'init' }); } catch (e) { /* reported below */ }
+      await new Promise(r => setTimeout(r, 900));
+      v = await getVal('OSW_Lib_Version', false);
+    }
+    libReady = !!v;
+    const chip = $('libver');
+    chip.textContent = v ? 'library ' + v : 'library not set up';
+    chip.classList.toggle('bad', !v);
+    if (!v) status('Streamer.bot hasn’t set up the panel library. Check that the “OSW Panels” action exists, references OSWTools.dll, and that OSWTools.dll was rebuilt with the Panels files as Embedded Resources. The Streamer.bot log will say “[OSW Panels] Library … ready” when it works.', 'bad');
+  }
+
+  // [FILES] Ask the "OSW Panels" action something. Running an action over the
+  // WebSocket doesn't return data, so the action answers with a broadcast
+  // that carries our requestId; onCustom() hands it back here.
+  // Resolves with the answer, or null after `ms` milliseconds.
+  const waiters = new Map();
+  function ask(op, extra, ms = 4000) {
+    const requestId = 'picker-' + Math.random().toString(36).slice(2, 10);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { waiters.delete(requestId); resolve(null); }, ms);
+      waiters.set(requestId, (d) => { clearTimeout(timer); waiters.delete(requestId); resolve(d); });
+      client.doAction({ name: 'OSW Panels' }, Object.assign({ op, requestId }, extra || {}))
+        .catch(() => { clearTimeout(timer); waiters.delete(requestId); resolve(null); });
+    });
+  }
+
+  // The widgets come from Streamer.bot itself: each overlay registers on
+  // connect (OSWData/osw-panels/widgets.json). So this works however the
+  // picker was opened, with or without picker-config.js.
+  async function discoverWidgets() {
+    const d = await ask('listWidgets');
+    const list = (d && d.widgets && typeof d.widgets === 'object') ? d.widgets : {};
+    console.log('[OSW picker] widgets.json =', list);   // visible in DevTools
+    Object.keys(list).forEach((id) => {
+      if (list[id] && typeof list[id] === 'object') widgets[id] = Object.assign({}, widgets[id], list[id]);
+    });
+    if (!current || !widgets[current]) current = Object.keys(widgets)[0] || null;
+    fillWidgetSelect();
+  }
+
+  async function showCurrent() {
+    if (current) { await openWidget(current, true); return; }
+    // Nothing registered yet: say what to do instead of an empty stage.
+    $('frame').hidden = true;
+    diag('No widgets have registered yet',
+      'Each OSW overlay registers itself the first time it connects to Streamer.bot. Open one (like the Info Panel) in OBS while Streamer.bot is running, then press Refresh.' +
+      (libReady ? '' : ' The panel library isn’t set up in Streamer.bot yet either; see the note below.'), !libReady);
+    if (libReady) status('Connected. Waiting for a widget to register.');
+    refreshButtons();
+  }
+
+  $('refresh').addEventListener('click', async () => {
+    if (!connected) return status('Not connected to Streamer.bot.', 'bad');
+    await checkLibrary();
+    await discoverWidgets();
+    await loadAllSaved();
+    await showCurrent();
+    toast(Object.keys(widgets).length ? 'Widgets refreshed' : 'No widgets yet');
+  });
+
+  // Every registered widget's saved look, so switching widgets and "apply to
+  // all" don't need extra round trips.
+  async function loadAllSaved() {
+    await Promise.all(Object.keys(widgets).map(async (id) => {
+      const d = await ask('getLook', { widget: id });        // [FILES] reads look.json
+      saved[id] = d && d.style ? d.style : null;
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // WIDGETS + PREVIEW
+  // ---------------------------------------------------------------------------
+  function fillWidgetSelect() {
+    const sel = $('widget');
+    const ids = Object.keys(widgets);
+    sel.innerHTML = ids.length
+      ? ids.map(id => `<option value="${id}">${escapeHtml(widgets[id].name || id)}</option>`).join('')
+      : '<option value="">No widgets registered yet</option>';
+    sel.disabled = !ids.length;
+    if (current) sel.value = current;
+  }
+  $('widget').addEventListener('change', async () => {
+    const next = $('widget').value;
+    if (isDirty() && !pendingSwitch) {
+      pendingSwitch = next;
+      $('widget').value = current;
+      status(`You have unsaved changes to ${nameOf(current)}. Save them, or choose ${nameOf(next)} again to discard them.`, 'warn');
+      return;
+    }
+    pendingSwitch = null;
+    await openWidget(next, true);
+  });
+  let pendingSwitch = null;
+  const nameOf = (id) => (widgets[id] && widgets[id].name) || id;
+
+  // Show the real overlay in the frame. If the widget never registered (it
+  // hasn't connected from OBS yet), fall back to a stand-in panel.
+  let frameReady = false, lookWaiter = null;
+  async function openWidget(id, fromServer) {
+    current = id;
+    $('widget').value = id;
+    const w = widgets[id];
+    frameReady = false;
+    const stage = $('stage');
+    stage.querySelectorAll('.fallback, .fallback-note').forEach(n => n.remove());
+    const frame = $('frame');
+    if (w && (w.fileUrl || w.url)) {
+      frame.hidden = false;
+      loadedPath = prettyPath(w.fileUrl || w.url);
+      gotReport = false;
+      diag('Loading the overlay…', '', false, loadedPath);
+      // file:// frames give no error event when the file is missing, so a
+      // timer stands in for one.
+      diagAfter(8000, () => diag('Couldn’t open the overlay file',
+        'If you moved or renamed it, open it in OBS once (with Streamer.bot running) so it reports its new location, then reopen the picker.', true, loadedPath));
+      frame.src = w.fileUrl || w.url;
+      $('stage-note').textContent = `Live preview of ${nameOf(id)} (the real overlay, with live data)`;
+      // Where to start editing from: the saved look, or, if there isn't one,
+      // whatever the overlay is showing now (its Streamer.bot settings).
+      if (saved[id]) startEditing(saved[id], 'saved');
+      else {
+        startEditing({}, 'none');
+        const reported = await askOverlayLook();
+        if (reported && reported.style) startEditing(reported.style, reported.from);
+      }
+    } else {
+      diagDone();
+      frame.hidden = true;
+      frame.removeAttribute('src');
+      const note = document.createElement('p');
+      note.className = 'fallback-note';
+      note.textContent = 'This widget hasn’t reported where its overlay file is yet. Open it in OBS once (with Streamer.bot running) and reopen the picker to preview the real thing. Showing a stand-in panel for now.';
+      stage.appendChild(note);
+      const panel = document.createElement('div');
+      panel.className = 'osw-panel fallback';
+      panel.dataset.oswManual = '';
+      panel.innerHTML = sampleContent('Latest Follower', 'NightOwl_TV', 'follow', true);
+      stage.appendChild(panel);
+      startEditing(saved[id] || {}, saved[id] ? 'saved' : 'none');
+      $('stage-note').textContent = 'Stand-in preview';
+    }
+  }
+
+  // ---- Preview diagnostics ------------------------------------------------
+  // The overlay reports its startup steps (osw-overlay-status). Each step
+  // replaces the note; the last good step hides it. If a step never comes,
+  // a timer explains the most likely reason.
+  let diagTimer = null, loadedPath = '', gotReport = false;
+  function diag(title, text, bad, path) {
+    $('diag').hidden = false;
+    $('diag').classList.toggle('bad', !!bad);
+    $('diag-title').textContent = title;
+    $('diag-text').textContent = text || '';
+    $('diag-path').textContent = path || '';
+  }
+  function diagDone() { $('diag').hidden = true; clearTimeout(diagTimer); }
+  function diagAfter(ms, fn) { clearTimeout(diagTimer); diagTimer = setTimeout(fn, ms); }
+  // file:///C:/Some%20Folder/x.html -> C:/Some Folder/x.html (easier to read)
+  const prettyPath = (u) => { try { return decodeURIComponent(u.replace(/^file:\/\/\/?/i, '')); } catch (e) { return u; } };
+
+  const STAGES = {
+    'script':         (d) => ['Overlay running', 'Connecting to Streamer.bot…'],
+    'connecting':     (d) => ['Overlay running', `Connecting to Streamer.bot at ${d}…`],
+    'client-missing': () => ['The overlay couldn’t load the Streamer.bot client', 'It comes from cdn.jsdelivr.net. Check this PC’s internet connection, or whether something is blocking that site.', true],
+    'ws-error':       (d) => ['The overlay can’t reach Streamer.bot', `It’s trying ${d}. In Streamer.bot, check Servers/Clients › WebSocket Server is running on that port, and that the overlay’s CONFIG (sbHost / sbPort / sbPassword) matches it.`, true],
+    'connected':      () => ['Connected', 'Loading the panel library…'],
+    'library-timeout':(d) => ['Streamer.bot didn’t answer', `The request for ${d} timed out. Restart Streamer.bot and reopen the picker. If it keeps happening, report it to Streamworks support.`, true],
+    'library-missing':() => ['The panel library isn’t set up in Streamer.bot', 'The overlay connected, but Streamer.bot hasn’t said where the library is. Check the “OSW Panels” action exists, uses OSWTools.dll, and that the Streamer.bot log shows “[OSW Panels] Library … ready”.', true],
+    'library-blocked':(d) => ['The overlay couldn’t load the panel library files', `It tried ${prettyPath(d.split('?')[0])}. Check that file exists. If it does, this browser is blocking local files; in OBS, overlays must be added as a “Local file” browser source.`, true],
+  };
+  window.addEventListener('message', (ev) => {
+    const m = ev.data;
+    if (!m || m.type !== 'osw-overlay-status' || ev.source !== $('frame').contentWindow) return;
+    gotReport = true;
+    if (m.stage === 'library-ready') {
+      diagDone();
+      // The library was missing or late before: send the look again now that it runs.
+      pushPreview(true);
+      return;
+    }
+    if (m.stage === 'library-reloading') { diag('Updating the overlay', 'It found a newer panel library and is reloading.'); return; }
+    const make = STAGES[m.stage];
+    if (!make) return;
+    const [t, x, bad] = make(m.detail);
+    diag(t, x, bad, loadedPath);
+    if (!bad) {
+      // A normal step: if nothing follows in a while, say so.
+      diagAfter(m.stage === 'connected' ? 12000 : 9000, () => diag(
+        m.stage === 'connected' ? 'Still loading the panel library' : 'Still connecting to Streamer.bot',
+        m.stage === 'connected'
+          ? 'Streamer.bot hasn’t answered. If this stays, check the Streamer.bot log for errors from the “OSW Panels” action.'
+          : 'No answer from Streamer.bot yet. Check it’s running and its WebSocket Server is on.', true, loadedPath));
+    }
+  });
+
+  // The frame finished loading (also after the overlay reloads itself for a
+  // new library): send it the current look again, and expect its first
+  // report soon. No report means the page isn't the OSW version of the overlay.
+  $('frame').addEventListener('load', () => {
+    frameReady = true;
+    pushPreview(true);
+    // The overlay reports while it's still loading, so by now it has usually
+    // spoken already. Only arm the "didn't start" note if it hasn't.
+    if (gotReport) return;
+    diagAfter(5000, () => diag('Couldn’t start the overlay',
+      'Either the file isn’t at this location any more (moved or renamed), or it’s an older copy without the OSW panel changes. Open the overlay in OBS once so it reports where it is, then reopen the picker.', true, loadedPath));
+  });
+
+  function askOverlayLook() {
+    return new Promise((resolve) => {
+      const frame = $('frame');
+      let tries = 0;
+      const ask = () => {
+        tries++;
+        try { frame.contentWindow.postMessage({ type: 'osw-get-look' }, '*'); } catch (e) { /* not loaded yet */ }
+        if (tries < 12) lookTimer = setTimeout(ask, 500);
+        else { lookWaiter = null; resolve(null); }
+      };
+      let lookTimer = null;
+      lookWaiter = (msg) => { clearTimeout(lookTimer); lookWaiter = null; resolve(msg); };
+      ask();
+    });
+  }
+  window.addEventListener('message', (ev) => {
+    const m = ev.data;
+    if (m && m.type === 'osw-look' && lookWaiter && m.widget === current) lookWaiter(m);
+  });
+
+  // Send the edited look to the preview. Debounced: dragging a slider sends
+  // dozens of changes a second, but the overlay only needs the latest.
+  let pushTimer = null;
+  function pushPreview(now) {
+    clearTimeout(pushTimer);
+    const send = () => {
+      const fb = $('stage').querySelector('.osw-panel.fallback');
+      if (fb) { P.apply(fb, look, { fresh: true }); return; }
+      const f = $('frame');
+      if (!f.hidden && f.contentWindow) f.contentWindow.postMessage({ type: 'osw-style-preview', style: look }, '*');
+    };
+    if (now) send(); else pushTimer = setTimeout(send, 60);
+  }
+
+  // Looks translated from old settings carry C# spellings ("Hexagon",
+  // "HoneycombFilled"). The library accepts them, but the swatches compare
+  // names exactly, so convert to the library's spelling ("hexagon") first.
+  const AXES = { shape: 'shape', skin: 'skin', texture: 'texture', iconShape: 'iconShape',
+    iconPosition: 'iconPosition', texturePalette: 'palette', motion: 'motion' };
+  function normalizeLook(style) {
+    const out = clone(style);
+    Object.entries(AXES).forEach(([k, axis]) => { if (typeof out[k] === 'string') out[k] = P.normalize(axis, out[k]); });
+    if (out.texture === 'none') delete out.texture;
+    if (typeof out.effect === 'string') out.effect = out.effect.toLowerCase();
+    if (out.effect === 'none') delete out.effect;
+    return out;
+  }
+
+  function startEditing(style, from) {
+    style = normalizeLook(style);
+    look = clone(style);
+    base = clone(style);
+    baseFrom = from;
+    renderAll();
+    pushPreview(true);
+    if (from === 'saved') status(`Editing ${nameOf(current)}’s saved look.`);
+    else if (from === 'settings') status(`${nameOf(current)} has no saved look yet. These are its Streamer.bot settings; saving makes them a saved look.`);
+    else status(`${nameOf(current)} has no saved look yet.`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // EDITING
+  // ---------------------------------------------------------------------------
+  const isDirty = () => !same(look, base);
+  function set(key, value) {
+    if (value === undefined || value === null || value === '') delete look[key];
+    else look[key] = value;
+    changed();
+  }
+  function changed() {
+    pushPreview();
+    refreshSelections();
+    refreshButtons();
+  }
+  function refreshButtons() {
+    const d = isDirty();
+    $('save').disabled = !connected || !current || (!d && baseFrom === 'saved');
+    $('save').innerHTML = d ? '<span class="dirty-dot"></span>Save look' : 'Save look';
+    $('revert').disabled = !d;
+    $('use-settings').disabled = !connected || !current || saved[current] == null;
+  }
+  $('revert').addEventListener('click', () => { look = clone(base); renderAll(); pushPreview(true); status('Changes undone.'); });
+
+  // ---------------------------------------------------------------------------
+  // SAVE  (+ apply to all)
+  // ---------------------------------------------------------------------------
+  // The theme keys, per INTEGRATION.md.
+  const THEME_KEYS = ['accent', 'accent2', 'alert', 'text', 'textDim', 'fill', 'font', 'fontIsGoogle', 'weight',
+    'strokeWidth', 'strokeColor', 'textShadow', 'textureColor'];
+
+  $('save').addEventListener('click', async () => {
+    const styles = { [current]: clone(look) };
+    const skipped = [];
+    if ($('all-on').checked) {
+      const level = $('all-level').value;
+      for (const id of Object.keys(widgets)) {
+        if (id === current) continue;
+        if (level === 'look') { styles[id] = clone(look); continue; }
+        // Colors & fonts only: merge into that widget's own saved look. A
+        // widget with no saved look yet is left alone, since we can't see its
+        // current settings from here and would otherwise replace its shape.
+        if (!saved[id]) { skipped.push(nameOf(id)); continue; }
+        const merged = clone(saved[id]);
+        THEME_KEYS.forEach(k => { if (k in look) merged[k] = clone(look[k]); else delete merged[k]; });
+        styles[id] = merged;
+      }
+    }
+    await sendSave(styles, skipped);
+  });
+
+  $('use-settings').addEventListener('click', async () => {
+    await sendSave({ [current]: null }, []);
+  });
+
+  // Call the action, then wait for the OSW_Style broadcast(s) to come back.
+  // That round trip is the real confirmation: the action ran, stored the
+  // look, and the overlays were told.
+  let awaiting = null;
+  async function sendSave(styles, skipped) {
+    if (!connected) return status('Not connected to Streamer.bot.', 'bad');
+    const ids = Object.keys(styles);
+    status('Saving…');
+    $('save').disabled = true;
+    const confirmed = new Promise((resolve) => {
+      const pending = new Set(ids);
+      const timer = setTimeout(() => { awaiting = null; resolve(false); }, 4000);
+      awaiting = (widget) => {
+        pending.delete(widget);
+        if (!pending.size) { clearTimeout(timer); awaiting = null; resolve(true); }
+      };
+    });
+    try {
+      await client.doAction({ name: 'OSW Panels' }, { op: 'save', styles: JSON.stringify(styles) });
+    } catch (e) {
+      awaiting = null;
+      refreshButtons();
+      return status('Couldn’t run the "OSW Panels" action. Is it set up in Streamer.bot?', 'bad');
+    }
+    const ok = await confirmed;
+    if (!ok) {
+      refreshButtons();
+      return status('No confirmation from Streamer.bot. Check that the "OSW Panels" action exists and uses OSWTools.dll.', 'bad');
+    }
+    ids.forEach(id => { saved[id] = styles[id] ? clone(styles[id]) : null; });
+    if (styles[current] === null) {
+      // Back to Streamer.bot settings: start over from what the overlay shows.
+      await openWidget(current, true);
+      status(`${nameOf(current)} is using its Streamer.bot settings again.`, 'ok');
+      toast('Saved look removed');
+    } else {
+      base = clone(look); baseFrom = 'saved';
+      refreshButtons();
+      const others = ids.length - 1;
+      status(`Saved${others ? ` · ${others} other widget${others > 1 ? 's' : ''} updated` : ''}.` +
+        (skipped.length ? ` Skipped ${skipped.join(', ')}: no saved look yet. Open ${skipped.length > 1 ? 'them' : 'it'} here and save once first.` : ''),
+        skipped.length ? 'warn' : 'ok');
+      toast('Saved');
+    }
+  }
+
+  function onCustom(payload) {
+    const d = payload && payload.data;
+    if (!d) return;
+    // [FILES] An answer to one of our own questions (listWidgets / getLook).
+    if (d.requestId && waiters.has(d.requestId)) { waiters.get(d.requestId)(d); return; }
+    if (d.event !== 'OSW_Style') return;
+    // Only an actual save confirms a save: the overlays also ask for their
+    // look (from: "file"), and those answers mustn't count.
+    if (awaiting && (d.from === 'saved' || !d.from)) { awaiting(d.widget); return; }
+    // Saved from somewhere else (another picker window): keep our copy current.
+    saved[d.widget] = d.style || null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST ALERT
+  // ---------------------------------------------------------------------------
+  $('t-go').addEventListener('click', () => {
+    const burst = $('t-burst').value;
+    const amount = Number($('t-amount').value) || 0;
+    const fb = $('stage').querySelector('.osw-panel.fallback');
+    if (fb) {
+      fb.classList.add('is-alert');
+      P.play(fb);
+      if (burst) P.burst(fb, burst.split(','), { amount });
+      setTimeout(() => fb.classList.remove('is-alert'), 3000);
+      return;
+    }
+    const f = $('frame');
+    f.contentWindow.postMessage({ type: 'osw-test-alert', burst: burst ? burst.split(',') : null, amount,
+      detail: amount + ' bits', category: 'TwitchBits' }, '*');
+  });
+
+  // ---------------------------------------------------------------------------
+  // PICKERS
+  // ---------------------------------------------------------------------------
+  const ICONS = P.assets.icons;
+  function sampleContent(sub, title, icon, big) {
+    return `<div class="osw-panel__content"><div class="osw-icon">${ICONS[icon]}</div>
+      <div class="osw-stack"><div class="osw-sub">${sub}</div><div class="osw-title">${title}</div></div></div>`;
+  }
+  const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // A swatch = a button holding a tiny live panel. `cfg(name)` gives the mini
+  // panel's look; `pick(name)` is what clicking does; `isOn(name)` marks the
+  // current choice.
+  const swatchGroups = [];
+  function swatchGrid(names, opts) {
+    const grid = document.createElement('div');
+    grid.className = 'swatches';
+    const group = { grid, items: [], isOn: opts.isOn };
+    names.forEach((item) => {
+      if (typeof item === 'object' && item.label) {
+        const l = document.createElement('div'); l.className = 'group-label'; l.textContent = item.label; grid.appendChild(l); return;
+      }
+      const name = item;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'sw';
+      b.innerHTML = `<div class="mini"><div class="osw-panel" data-osw-manual>${sampleContent('Follower', 'OSUPhoenix', 'follow')}</div></div><span>${escapeHtml(opts.label ? opts.label(name) : name)}</span>`;
+      b.title = opts.label ? opts.label(name) : name;
+      grid.appendChild(b);
+      const panel = b.querySelector('.osw-panel');
+      group.items.push({ name, b, panel, cfg: opts.cfg });
+      b.addEventListener('click', () => opts.pick(name));
+    });
+    swatchGroups.push(group);
+    return grid;
+  }
+  // Mini panels show their choice ON TOP OF the current look's colors, so
+  // every swatch previews "what mine would look like with this".
+  function paintSwatches() {
+    const colors = {};
+    THEME_KEYS.forEach(k => { if (k in look) colors[k] = look[k]; });
+    swatchGroups.forEach(g => g.items.forEach(it => {
+      const cfg = Object.assign({}, colors, it.cfg(it.name));
+      const key = JSON.stringify(cfg);
+      if (it.panel._k !== key) { it.panel._k = key; P.apply(it.panel, cfg, { fresh: true }); }
+    }));
+  }
+  function refreshSelections() {
+    swatchGroups.forEach(g => g.items.forEach(it => it.b.classList.toggle('on', !!g.isOn(it.name))));
+    paintSwatchesSoon();
+  }
+  let paintTimer = null;
+  function paintSwatchesSoon() { clearTimeout(paintTimer); paintTimer = setTimeout(paintSwatches, 120); }
+
+  // What the mini panels share: the current shape/skin, so each picker shows
+  // its own axis changing on the user's real combination.
+  const cur = (k, d) => (look[k] !== undefined ? look[k] : d);
+  const pickAxis = (k) => (name) => set(k, name);
+
+  // One-click color themes. A theme sets colors and text only; shape, skin
+  // and effects stay as they are. "Library default" clears them all.
+  const SILVER_FRAME = 'linear-gradient(180deg, #f3f4f6, #a4a9b0 50%, #5f646b)';
+  const THEMES = {
+    streamworks: { label: 'Streamworks', note: 'red · black · silver',
+      swatch: ['#e0121d', '#0a0a0b', '#c4c8ce'],
+      keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
+              fill: 'rgba(8, 8, 9, 0.92)', frameColor: SILVER_FRAME, textureColor: 'rgba(255, 255, 255, 0.06)' } },
+    'streamworks-red': { label: 'Streamworks red frame', note: 'red frame, silver details',
+      swatch: ['#e0121d', '#0a0a0b', '#e0121d'],
+      keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
+              fill: 'rgba(8, 8, 9, 0.92)', textureColor: 'rgba(255, 255, 255, 0.06)' } },
+    none: { label: 'Library default', note: 'clear all colors', swatch: ['#c81e2c', '#0a0a0a', '#f2f2f2'], keys: {} }
+  };
+  const THEME_ALL_KEYS = THEME_KEYS.concat(['frameColor']);
+  function themeRow() {
+    const wrap = el('<div><p class="sub-head">Color themes</p><div class="themes"></div><p class="hint">Sets colors and text only. Shape, skin and effect stay.</p></div>');
+    const row = wrap.querySelector('.themes');
+    Object.entries(THEMES).forEach(([id, t]) => {
+      const b = el(`<button type="button" class="theme"><span class="dots">${t.swatch.map(c => `<i style="background:${c}"></i>`).join('')}</span>
+        <span class="t-name">${t.label}</span><span class="t-note">${t.note}</span></button>`);
+      b.addEventListener('click', () => {
+        THEME_ALL_KEYS.forEach(k => delete look[k]);
+        Object.assign(look, clone(t.keys));
+        changed(); renderFields();
+        status(`${t.label} colors applied. Save to keep them.`);
+      });
+      row.appendChild(b);
+    });
+    return wrap;
+  }
+
+  const TABS = [];
+  function tab(id, label, build) { TABS.push({ id, label, build }); }
+
+  tab('presets', 'Presets', (pane) => {
+    pane.appendChild(swatchGrid(Object.keys(P.PRESETS), {
+      cfg: (n) => P.PRESETS[n],
+      // A preset is "selected" when the look has all of its settings.
+      isOn: (n) => Object.entries(P.PRESETS[n]).every(([k, v]) => look[k] === v || (v === 'none' && look[k] === undefined)),
+      pick: (n) => {
+        // A preset sets its axes outright (and clears ones it doesn't use),
+        // but keeps the user's colors and fonts. The axes are stored, not the
+        // preset's name, so a later library change to a preset can't
+        // silently change a saved look.
+        ['shape', 'skin', 'texture', 'effect', 'iconShape', 'effectOptions'].forEach(k => delete look[k]);
+        Object.entries(P.PRESETS[n]).forEach(([k, v]) => { if (v !== 'none') look[k] = v; });
+        changed(); renderFields();
+      }
+    }));
+  });
+  tab('shape', 'Shape', (pane) => {
+    pane.appendChild(swatchGrid(P.SHAPES, {
+      cfg: (n) => ({ shape: n, skin: cur('skin', 'solid'), texture: 'hex-grid' }),
+      isOn: (n) => cur('shape', 'chamfer-right') === n, pick: pickAxis('shape') }));
+  });
+  tab('skin', 'Skin', (pane) => {
+    pane.appendChild(swatchGrid(P.SKINS, {
+      cfg: (n) => ({ shape: cur('shape', 'chamfer-right'), skin: n }),
+      isOn: (n) => cur('skin', 'solid') === n, pick: pickAxis('skin') }));
+  });
+  tab('texture', 'Texture', (pane) => {
+    const names = [{ label: 'One color' }].concat(P.MASK_TEXTURES, [{ label: 'Multi-color patterns' }], Object.keys(P.PATTERNS));
+    pane.appendChild(swatchGrid(names, {
+      cfg: (n) => ({ shape: 'square', texture: n, textureColor: look.textureColor || 'rgba(255,255,255,.16)', texturePalette: look.texturePalette }),
+      isOn: (n) => cur('texture', 'none') === n,
+      pick: (n) => { set('texture', n === 'none' ? null : n); delete look.textureColors; renderFields(); changed(); } }));
+    pane.appendChild(fieldsBox('texture'));
+  });
+  tab('colors', 'Colors', (pane) => { pane.appendChild(themeRow()); pane.appendChild(fieldsBox('colors')); });
+  tab('effect', 'Effect', (pane) => {
+    pane.appendChild(swatchGrid(['none'].concat(Object.keys(P.EFFECTS)), {
+      cfg: (n) => ({ shape: cur('shape', 'chamfer-right'), skin: cur('skin', 'solid'), effect: n === 'none' ? 'none' : n,
+        effectOptions: n === 'embers' ? { spill: 0, rate: 8, from: 'inside' } : undefined }),
+      isOn: (n) => cur('effect', 'none') === n,
+      pick: (n) => { set('effect', n === 'none' ? null : n); delete look.effectOptions; renderFields(); changed(); } }));
+    pane.appendChild(fieldsBox('effect'));
+  });
+  tab('icon', 'Icon', (pane) => {
+    pane.appendChild(swatchGrid(P.ICON_SHAPES, {
+      cfg: (n) => ({ shape: cur('shape', 'chamfer-right'), skin: cur('skin', 'solid'), iconShape: n }),
+      isOn: (n) => cur('iconShape', 'circle') === n,
+      pick: (n) => set('iconShape', n === 'circle' ? null : n) }));
+    pane.appendChild(fieldsBox('icon'));
+  });
+
+  function buildTabs() {
+    const tabs = $('tabs'), panes = $('panes');
+    TABS.forEach((t, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.role = 'tab'; b.textContent = t.label; b.dataset.tab = t.id;
+      b.setAttribute('aria-selected', i === 0);
+      tabs.appendChild(b);
+      const pane = document.createElement('div');
+      pane.className = 'pane'; pane.dataset.pane = t.id; pane.hidden = i !== 0;
+      panes.appendChild(pane);
+      t.build(pane);
+      b.addEventListener('click', () => {
+        tabs.querySelectorAll('button').forEach(x => x.setAttribute('aria-selected', x === b));
+        panes.querySelectorAll('.pane').forEach(p => p.hidden = p.dataset.pane !== t.id);
+        try { localStorage.setItem('osw-picker-tab', t.id); } catch (e) { /* fine */ }
+      });
+    });
+    try { const last = localStorage.getItem('osw-picker-tab'); if (last) tabs.querySelector(`[data-tab="${last}"]`)?.click(); } catch (e) { /* fine */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // FIELDS (non-swatch settings). Each box re-renders from `look`.
+  // ---------------------------------------------------------------------------
+  const fieldBoxes = [];
+  function fieldsBox(kind) {
+    const box = document.createElement('div');
+    box.className = 'fields';
+    fieldBoxes.push({ box, kind });
+    return box;
+  }
+  function renderFields() { fieldBoxes.forEach(({ box, kind }) => { box.innerHTML = ''; FIELD_BUILDERS[kind](box); }); }
+
+  // Library defaults, shown when a key isn't set (so the user sees what
+  // they'll get, and "Default" means "whatever the library/skin uses").
+  const DEF = { accent: '#c81e2c', alert: '#ffb300', text: '#f2f2f2', textDim: '#c2c2c2' };
+
+  // Any CSS color -> "#rrggbb" for the color pickers. Two steps:
+  //  1. let the page resolve it (var(), color-mix(), relative colors) by
+  //     giving it to a hidden element and reading back the computed color;
+  //  2. paint that onto a 1x1 canvas and read the pixel. The canvas turns
+  //     every format (rgb, oklch, color(srgb ...)) into plain RGB numbers.
+  const probeCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  function hexOf(css, fallback) {
+    if (!css) return fallback;
+    if (/^#[0-9a-f]{6}$/i.test(css)) return css;
+    const s = document.createElement('span');
+    s.style.color = css;
+    document.body.appendChild(s);
+    const computed = getComputedStyle(s).color;
+    s.remove();
+    probeCtx.clearRect(0, 0, 1, 1);
+    probeCtx.fillStyle = '#000';
+    probeCtx.fillStyle = computed;
+    probeCtx.fillRect(0, 0, 1, 1);
+    const [r, g, b2] = probeCtx.getImageData(0, 0, 1, 1).data;
+    return '#' + [r, g, b2].map(n => n.toString(16).padStart(2, '0')).join('');
+  }
+  function alphaOf(css) { const m = String(css || '').match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/); return m ? Number(m[1]) : 1; }
+
+  function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; }
+  function colorField(box, key, label, fallback, full) {
+    const isSet = look[key] !== undefined;
+    const v = hexOf(look[key], fallback);
+    const f = el(`<div class="f${full ? ' full' : ''}"><span>${label}${isSet ? '<button type="button" class="reset">Default</button>' : ''}</span>
+      <div class="pair"><input type="color" value="${v}" aria-label="${label}"><input type="text" value="${isSet ? escapeHtml(look[key]) : ''}" placeholder="Default (${fallback})" aria-label="${label} value"></div></div>`);
+    const [pick, text] = f.querySelectorAll('input');
+    pick.addEventListener('input', () => { look[key] = pick.value; text.value = pick.value; changed(); });
+    pick.addEventListener('change', () => renderFields());
+    text.addEventListener('change', () => { set(key, text.value.trim() || null); renderFields(); });
+    const r = f.querySelector('.reset'); if (r) r.addEventListener('click', () => { set(key, null); renderFields(); });
+    box.appendChild(f);
+  }
+  function rangeField(box, key, label, min, max, step, fallback, unit, full) {
+    const v = look[key] !== undefined ? parseFloat(look[key]) : fallback;
+    const f = el(`<label class="f${full ? ' full' : ''}"><span>${label} <output>${look[key] !== undefined ? v + (unit || '') : 'default'}</output></span>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${v}"></label>`);
+    const r = f.querySelector('input'), o = f.querySelector('output');
+    r.addEventListener('input', () => { look[key] = Number(r.value); o.textContent = r.value + (unit || ''); changed(); });
+    box.appendChild(f);
+  }
+  function selectField(box, key, label, options, fallback, full) {
+    const v = look[key] !== undefined ? String(look[key]) : String(fallback);
+    const f = el(`<label class="f${full ? ' full' : ''}"><span>${label}</span><select>${options.map(o => {
+      const val = typeof o === 'object' ? o.v : o, lab = typeof o === 'object' ? o.l : o;
+      return `<option value="${val}"${String(val) === v ? ' selected' : ''}>${lab}</option>`; }).join('')}</select></label>`);
+    const s = f.querySelector('select');
+    s.addEventListener('change', () => { set(key, s.value === String(fallback) ? null : (isNaN(Number(s.value)) || s.value === '' ? s.value : Number(s.value))); renderFields(); });
+    box.appendChild(f);
+  }
+
+  const FIELD_BUILDERS = {
+    colors(box) {
+      colorField(box, 'accent', 'Accent', DEF.accent);
+      // Accent 2 defaults to the accent's hue turned 60°: computed live.
+      colorField(box, 'accent2', 'Accent 2', hexOf(`oklch(from ${look.accent || DEF.accent} l c calc(h - 60))`, '#b3215f'));
+      colorField(box, 'alert', 'Alert color', DEF.alert);
+      colorField(box, 'text', 'Text', DEF.text);
+      colorField(box, 'textDim', 'Second line', DEF.textDim);
+      // Fill: a color + opacity (written as rgba), or the skin's default.
+      const fillSet = look.fill !== undefined;
+      const f = el(`<div class="f full"><span>Panel fill${fillSet ? '<button type="button" class="reset">Default</button>' : ''}</span>
+        <div class="pair"><input type="color" value="${hexOf(look.fill, '#0a0a0a')}" aria-label="Fill color">
+        <input type="range" min="0" max="1" step="0.05" value="${fillSet ? alphaOf(look.fill) : 0.88}" aria-label="Fill opacity">
+        <output>${fillSet ? Math.round(alphaOf(look.fill) * 100) + '%' : 'default'}</output></div></div>`);
+      const [fc, fa] = f.querySelectorAll('input'); const fo = f.querySelector('output');
+      const upd = () => { look.fill = P.util.hexToRgba(fc.value, fa.value); fo.textContent = Math.round(fa.value * 100) + '%'; changed(); };
+      fc.addEventListener('input', upd); fa.addEventListener('input', upd);
+      const fr = f.querySelector('.reset'); if (fr) fr.addEventListener('click', () => { set('fill', null); renderFields(); });
+      box.appendChild(f);
+      // Font
+      const ff = el(`<div class="f full"><span>Font${look.font ? '<button type="button" class="reset">Default</button>' : ''}</span>
+        <div class="pair"><input type="text" value="${escapeHtml(look.font || '')}" placeholder="Default (Segoe UI)" aria-label="Font family">
+        <label class="toggle" style="white-space:nowrap"><input type="checkbox"${look.fontIsGoogle ? ' checked' : ''}> Google Font</label></div>
+        <p class="hint">Type a font installed on this PC, or tick Google Font to load it from fonts.google.com (e.g. Rajdhani, Orbitron).</p></div>`);
+      const [ft, fg] = ff.querySelectorAll('input');
+      ft.addEventListener('change', () => { set('font', ft.value.trim() || null); if (!ft.value.trim()) delete look.fontIsGoogle; renderFields(); });
+      fg.addEventListener('change', () => { set('fontIsGoogle', fg.checked || null); });
+      const ffr = ff.querySelector('.reset'); if (ffr) ffr.addEventListener('click', () => { delete look.font; delete look.fontIsGoogle; changed(); renderFields(); });
+      box.appendChild(ff);
+      selectField(box, 'weight', 'Weight', [400, 500, 600, 700, 800, 900], 700);
+      rangeField(box, 'frameWidth', 'Frame width', 0, 8, 1, 3, 'px');
+      rangeField(box, 'strokeWidth', 'Text outline', 0, 4, 0.5, 0, 'px');
+      colorField(box, 'strokeColor', 'Outline color', '#000000');
+      selectField(box, 'textShadow', 'Text shadow', [{ v: 'none', l: 'None' }, { v: '0 2px 4px rgba(0,0,0,.8)', l: 'Soft drop' },
+        { v: '0 0 6px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.6)', l: 'Dark glow' }, { v: '0 0 8px var(--osw-accent)', l: 'Accent glow' }], 'none', true);
+      rangeField(box, 'chamfer', 'Slant size', 0, 60, 1, 26, 'px');
+      rangeField(box, 'radius', 'Corner radius', 0, 40, 1, 14, 'px');
+    },
+    texture(box) {
+      const t = look.texture;
+      if (!t) { box.appendChild(el('<p class="hint full">Pick a texture above to adjust it.</p>')); return; }
+      if (P.PATTERNS[t]) {
+        selectField(box, 'texturePalette', 'Pattern colors', [{ v: 'original', l: 'Original' }, { v: 'accent', l: 'From accent' }, { v: 'mono', l: 'Dark mono' }], 'original');
+        rangeField(box, 'textureOpacity', 'Strength', 0.05, 1, 0.05, 0.4, '');
+      } else {
+        colorField(box, 'textureColor', 'Texture color', '#ffffff');
+        rangeField(box, 'textureOpacity', 'Strength', 0.05, 1, 0.05, 1, '');
+      }
+      rangeField(box, 'textureScale', 'Size', 0.5, 3, 0.1, 1, '×', true);
+    },
+    effect(box) {
+      const fx = look.effect;
+      const fields = EFFECT_UI[fx];
+      if (!fields) { box.appendChild(el(`<p class="hint full">${fx ? 'This effect has no options.' : 'Pick an effect above.'}</p>`)); return; }
+      const opts = look.effectOptions || {};
+      fields.forEach(fd => {
+        const val = opts[fd.k] !== undefined ? opts[fd.k] : fd.def;
+        let f;
+        if (fd.type === 'range') {
+          f = el(`<label class="f"><span>${fd.label} <output>${val}</output></span><input type="range" min="${fd.min}" max="${fd.max}" step="${fd.step}" value="${val}"></label>`);
+        } else if (fd.type === 'select') {
+          f = el(`<label class="f"><span>${fd.label}</span><select>${fd.opts.map(o => { const v = typeof o === 'object' ? o.v : o, l = typeof o === 'object' ? o.l : o;
+            return `<option value="${v}"${String(v) === String(val) ? ' selected' : ''}>${l}</option>`; }).join('')}</select></label>`);
+        } else {
+          f = el(`<label class="f toggle full"><input type="checkbox"${val ? ' checked' : ''}> ${fd.label}</label>`);
+        }
+        const inp = f.querySelector('input, select'), out = f.querySelector('output');
+        inp.addEventListener(fd.type === 'range' ? 'input' : 'change', () => {
+          let v = fd.type === 'check' ? inp.checked : inp.value;
+          if (typeof fd.def === 'number') v = Number(v);
+          const o = Object.assign({}, look.effectOptions);
+          if (v === fd.def) delete o[fd.k]; else o[fd.k] = v;     // store only what differs from the default
+          if (Object.keys(o).length) look.effectOptions = o; else delete look.effectOptions;
+          if (out) out.textContent = v;
+          changed();
+        });
+        box.appendChild(f);
+      });
+    },
+    icon(box) {
+      selectField(box, 'iconPosition', 'Icon position', [{ v: 'inline', l: 'In the panel' }, { v: 'top', l: 'Hanging on top' }, { v: 'bottom', l: 'Hanging below' }], 'inline');
+      selectField(box, 'motion', 'Entrance motion', P.MOTIONS, 'fade');
+      box.appendChild(el('<p class="hint full">Entrance motion plays when a widget brings a panel in with OSWPanels.show(). Widgets that fade their content instead (like the Info Panel) ignore it.</p>'));
+    }
+  };
+
+  // Effect options: same controls as the gallery builder.
+  const FX_COLOR = { k: 'color', label: 'Color', type: 'select', def: '',
+    opts: [{ v: '', l: 'Default' }, { v: '#ffffff', l: 'White' }, { v: 'var(--osw-accent)', l: 'Accent' }, { v: 'var(--osw-accent-2)', l: 'Accent 2' }] };
+  const EFFECT_UI = {
+    trace: [
+      { k: 'speed', label: 'Lap time (ms)', type: 'range', min: 800, max: 8000, step: 100, def: 3000 },
+      { k: 'length', label: 'Tail (px)', type: 'range', min: 20, max: 240, step: 5, def: 90 },
+      { k: 'count', label: 'Comets', type: 'select', opts: [1, 2, 3, 4], def: 1 },
+      { k: 'direction', label: 'Direction', type: 'select', opts: ['cw', 'ccw'], def: 'cw' },
+      FX_COLOR,
+      { k: 'dim', label: 'Dim the rest of the frame', type: 'check', def: false }
+    ],
+    shine: [
+      { k: 'mode', label: 'Mode', type: 'select', opts: ['loop', 'once'], def: 'loop' },
+      { k: 'layer', label: 'Layer', type: 'select', opts: ['front', 'behind'], def: 'front' },
+      { k: 'interval', label: 'Every (ms)', type: 'range', min: 1000, max: 12000, step: 250, def: 4000 },
+      { k: 'duration', label: 'Sweep (ms)', type: 'range', min: 300, max: 3000, step: 50, def: 900 },
+      { k: 'width', label: 'Band width (%)', type: 'range', min: 5, max: 80, step: 1, def: 30 },
+      { k: 'angle', label: 'Slant (deg)', type: 'range', min: -45, max: 45, step: 1, def: 20 },
+      { k: 'strength', label: 'Brightness', type: 'range', min: .05, max: 1, step: .05, def: .35 },
+      FX_COLOR,
+      { k: 'playOnShow', label: 'Sweep on each alert', type: 'check', def: true }
+    ],
+    embers: [
+      { k: 'palette', label: 'Colors', type: 'select', def: 'fire', opts: [{ v: 'fire', l: 'Fire' }, { v: 'accent', l: 'Accent' }, { v: 'accent2', l: 'Accent 2' }, { v: 'spirit', l: 'Spirit (blue)' }] },
+      { k: 'from', label: 'Start from', type: 'select', opts: ['top', 'inside', 'bottom'], def: 'top' },
+      { k: 'rate', label: 'Amount', type: 'range', min: 0, max: 20, step: .5, def: 4 },
+      { k: 'rise', label: 'Rise speed', type: 'range', min: 10, max: 140, step: 1, def: 45 },
+      { k: 'size', label: 'Size (px)', type: 'range', min: .8, max: 6, step: .1, def: 2.2 },
+      { k: 'life', label: 'Life (s)', type: 'range', min: .6, max: 6, step: .1, def: 2.6 },
+      { k: 'wind', label: 'Wind', type: 'range', min: -60, max: 60, step: 1, def: 0 },
+      { k: 'sparks', label: 'Sparks', type: 'range', min: 0, max: .6, step: .02, def: .08 },
+      { k: 'spill', label: 'Room above (px)', type: 'range', min: 0, max: 160, step: 5, def: 70 },
+      { k: 'layer', label: 'Layer', type: 'select', opts: ['behind', 'front'], def: 'behind' },
+      { k: 'playOnShow', label: 'Flare on each alert', type: 'check', def: true }
+    ],
+    hexglow: [
+      { k: 'hexRadius', label: 'Hex size (px)', type: 'range', min: 8, max: 40, step: 1, def: 17 },
+      { k: 'activeRatio', label: 'Share glowing', type: 'range', min: .05, max: 1, step: .05, def: .55 },
+      { k: 'bloom', label: 'Bloom (px)', type: 'range', min: 0, max: 20, step: 1, def: 7 }
+    ],
+    electric: [
+      { k: 'amplitude', label: 'Jitter (px)', type: 'range', min: 1, max: 12, step: .5, def: 4 },
+      { k: 'branches', label: 'Fork chance', type: 'range', min: 0, max: 1, step: .05, def: .35 },
+      { k: 'fps', label: 'Crackle speed', type: 'range', min: 6, max: 40, step: 1, def: 18 },
+      { k: 'lines', label: 'Bolts', type: 'select', opts: [1, 2], def: 2 }
+    ]
+  };
+
+  function renderAll() { renderFields(); refreshSelections(); refreshButtons(); }
+
+  // ---------------------------------------------------------------------------
+  // SMALL UI HELPERS
+  // ---------------------------------------------------------------------------
+  function status(text, kind) { const s = $('status'); s.textContent = text; s.className = 'status' + (kind ? ' ' + kind : ''); }
+  let toastT;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1600); }
+  document.querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-bg]').forEach(x => x.setAttribute('aria-pressed', x === b));
+    $('stage').className = 'stage bg-' + b.dataset.bg;
+  }));
+  $('all-on').addEventListener('change', () => {
+    $('all-hint').textContent = $('all-on').checked
+      ? ($('all-level').value === 'look'
+        ? 'Saving will give every widget this exact look.'
+        : 'Saving will copy these colors and fonts into every other widget’s saved look. Their shapes and skins stay.')
+      : 'Each widget keeps its own saved look; this only copies to them when you save.';
+  });
+  $('all-level').addEventListener('change', () => $('all-on').dispatchEvent(new Event('change')));
+  // Leaving with unsaved changes: the browser's own "leave page?" prompt.
+  window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---------------------------------------------------------------------------
+  // START
+  // ---------------------------------------------------------------------------
+  buildTabs();
+  fillWidgetSelect();
+  renderAll();
+  if (CFG) {
+    if (CFG.libVersion) $('libver').textContent = 'library ' + CFG.libVersion;
+    connect(CFG.host || '127.0.0.1', CFG.port || 8080, CFG.password || '');
+  } else {
+    $('connect').hidden = false;
+    setConn('', 'Not connected');
+    status('Opened without its settings file: connect to Streamer.bot below. The picker will find your widgets itself.');
+    $('c-go').addEventListener('click', () => connect($('c-host').value.trim(), $('c-port').value, $('c-pass').value));
+  }
+})();
+</script>
+</body>
+</html>
