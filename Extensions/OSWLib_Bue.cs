@@ -175,6 +175,41 @@ namespace OSWTools
         }
 
         /// <summary>
+        /// Every Blow Up Emote action script calls this once, passing ITS OWN version
+        /// (the ScriptVersion constant at the top of the script).
+        ///
+        ///  1. DeclareInstalled("BUE", scriptVersion): writes OSUP_BUE_Installed/_Version.
+        ///     The master update check compares that version with the product registry
+        ///     sheet's "Current Version" for code BUE and shows the "Updates Available"
+        ///     window when the script is behind.
+        ///  2. Register(scriptVersion, MinDllVersion): if this OSWTools.dll is older than
+        ///     BUE needs, shows the "Update Required" window (once per session).
+        ///  3. If the script's version differs from this DLL's build, writes a warning to
+        ///     bue_log.txt: you updated one but not the other.
+        /// Never throws: a versioning problem must not stop a round.
+        /// </summary>
+        public void BueRegister(string scriptVersion)
+        {
+            try
+            {
+                DeclareInstalled("BUE", scriptVersion);
+                Register(scriptVersion, BueStore.MinDllVersion);
+                if (!string.Equals(scriptVersion, BueStore.BuildTag, StringComparison.Ordinal))
+                {
+                    string once = "BUEVER|" + scriptVersion;
+                    if (_bueVersionWarned.Add(once))
+                        BueLog.Write("VERSION MISMATCH: an action script is v" + scriptVersion + " but OSWTools.dll has BUE build v" +
+                                     BueStore.BuildTag + ". Paste the newest action code (or rebuild the DLL) so both match.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWarn("[BUE] BueRegister failed: " + ex.Message);
+            }
+        }
+        private static readonly HashSet<string> _bueVersionWarned = new HashSet<string>();
+
+        /// <summary>
         /// Download fresh 7TV/BTTV/FFZ lists now and log the result (counts or the error)
         /// to bue_log.txt. Run from the "Blow Up Emote - Refresh Emotes" action: this is
         /// also the quickest way to check that each service is reachable from your PC.
@@ -696,6 +731,8 @@ namespace OSWTools
                         "\n  Platforms: " + string.Join(", ", c.EnabledPlatforms) +
                         "\n  Pops so far: " + s.TotalPops + "   this round contributors: " + s.RoundContributors.Count +
                         "\n  Config file: " + BueStore.ConfigPath(targetId) +
+                        "\n  Versions: DLL build " + BueStore.BuildTag + ", action scripts declared v" + GetModuleVersion("BUE") +
+                        (GetModuleVersion("BUE") == BueStore.BuildTag ? " (match)" : " (MISMATCH - update the older side)") +
                         "\n  Emote services: Twitch always on, " + ThirdPartySummary(c.Use7TV, c.UseBTTV, c.UseFFZ) +
                         "\n  BUE log file: " + BueLog.FilePath);
                 BueLog.Write("STATUS build " + BueStore.BuildTag + " rounds=" + c.StartHidden + " running=" + s.Active +

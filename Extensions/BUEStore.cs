@@ -58,6 +58,13 @@ namespace OSWTools.BlowUpEmote
         /// <summary>Build tag of the DLL code. Logged by Start/Cancel/Status so you can confirm the rebuilt DLL is the one Streamer.bot is running.</summary>
         public const string BuildTag = "2.8.0";
 
+        /// <summary>
+        /// The oldest OSWTools.dll (OSWVersion.Current) these action scripts can run on.
+        /// Passed to Register() by BueRegister(). Raise it whenever a script starts using
+        /// a DLL method that older DLLs don't have. BUE 2.8 ships with DLL 1.2.0.
+        /// </summary>
+        public const string MinDllVersion = "1.1.0";
+
         /// <summary>Lock for any load -> change -> save sequence. See header.</summary>
         public static readonly object SyncRoot = new object();
 
