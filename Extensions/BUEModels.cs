@@ -173,9 +173,17 @@ namespace OSWTools.BlowUpEmote
 
         public EmoteControlMode EmoteControl { get; set; } = EmoteControlMode.StreamerOnly;
 
+        // ── Third-party emote services (NEW) ─────────────────────────────
+        // Twitch's own emotes are always recognised. These switch on the extra
+        // services whose emotes Twitch doesn't know (KEKW, Pepega, ...). Each one
+        // downloads the streamer's channel emotes plus that service's global set.
+        public bool Use7TV { get; set; } = true;
+        public bool UseBTTV { get; set; } = true;
+        public bool UseFFZ { get; set; } = true;
+
         // ── Which emotes may be PICKED for a round (rounds on) ───────────
-        // These only filter what a Start / Set Emote may choose. The streamer is
-        // trusted and is never blocked by them.
+
+        // These filter what a Start / Set Emote may choose. They apply to everyone, the streamer included.
 
         /// <summary>Emotes a viewer may choose. EMPTY = any real emote.</summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
@@ -270,6 +278,37 @@ namespace OSWTools.BlowUpEmote
         /// false = the balloon is always on screen (the original behavior).
         /// </summary>
         public bool StartHidden { get; set; } = true;
+
+        // ── Look & chat messages ─────────────────────────────────────────
+
+        /// <summary>Colour of the progress bar in the widget, "#RRGGBB". Lets a streamer match their theme.</summary>
+        public string ProgressBarColor { get; set; } = "#ff7a1a";
+
+        /// <summary>
+        /// true = BUE posts round messages in chat: a round started ("wants to blow up X"),
+        /// popped (who popped it), or ended without a pop (timed out / cancelled).
+        /// Replies to a single viewer (rejected entry, refund confirmation) are always sent.
+        /// </summary>
+        public bool AnnounceInChat { get; set; } = true;
+
+        // ── Auto-end (inactivity timeout) ────────────────────────────────
+
+        /// <summary>
+        /// true = a running round ENDS BY ITSELF (no pop, no winner, like Cancel)
+        /// once the balloon has been EMPTY (0%) for AutoEndSeconds. The countdown
+        /// only runs while the balloon is empty: a fresh round starts at 0%, so it
+        /// counts down from the start until someone adds to it; deflation that
+        /// drains it to 0% starts it again. Any entry stops it. Only applies while
+        /// rounds are on. A balloon that is above 0% and NOT deflating never empties,
+        /// so it never times out.
+        /// </summary>
+        public bool AutoEndEnabled { get; set; } = true;
+
+        /// <summary>Seconds the balloon may sit at 0% before the round ends. Clamped 10-3600 by NormalizeConfig.</summary>
+        public int AutoEndSeconds { get; set; } = 120;
+
+        /// <summary>The emote flashes red for the last this-many seconds of that countdown. 0 = no warning.</summary>
+        public int AutoEndWarnSeconds { get; set; } = 10;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -317,6 +356,22 @@ namespace OSWTools.BlowUpEmote
 
         /// <summary>When FillPercent was last known to be exact (UTC). Used to work out how much has drained since.</summary>
         public DateTime? FillAsOfUtc { get; set; } = null;
+
+        // ── "Pick again" window ──────────────────────────────────────────
+        // A PAID start whose emote was refused still starts (with the default or
+        // the smiley). The payer then gets a short window: their next chat message
+        // containing an allowed emote switches the round to it. These three fields
+        // remember who may do that and until when. All empty = nobody is pending.
+        public string PendingPickUserId { get; set; } = "";
+        public string PendingPickUserName { get; set; } = "";
+
+        /// <summary>
+        /// The moment the balloon became EMPTY (0%): the round start, or the instant
+        /// deflation drained it. The auto-end deadline is this + config.AutoEndSeconds.
+        /// null = the balloon is not empty (or no round) - no countdown running.
+        /// </summary>
+        public DateTime? EmptySinceUtc { get; set; } = null;
+        public DateTime? PendingPickUntilUtc { get; set; } = null;
     }
 
     // ─────────────────────────────────────────────────────────────────────

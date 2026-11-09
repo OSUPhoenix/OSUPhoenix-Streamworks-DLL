@@ -72,7 +72,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = '1.6.2';
+  const VERSION = '1.8.0';
 
   /* ------------------------------------------------------------------
      CATALOG — what exists. The gallery page builds itself from these,
@@ -186,6 +186,7 @@
     padX: ['--osw-pad-x', 'px'], padY: ['--osw-pad-y', 'px'], iconSize: ['--osw-icon-size', 'px'],
     textureColor: ['--osw-texture-color'], textureScale: ['--osw-texture-scale'],
     textureOpacity: ['--osw-texture-opacity'],
+    fontScale: ['--osw-font-scale'],         // v1.7: text size, 1 = normal (0.5 to 2)
     strokeWidth: ['--osw-stroke-w', 'px'], strokeColor: ['--osw-stroke-color'], textShadow: ['--osw-text-shadow'],
     inMs: ['--osw-in-ms', 'ms'], outMs: ['--osw-out-ms', 'ms'], swapMs: ['--osw-swap-ms', 'ms']
   };
@@ -341,6 +342,10 @@
     }
     if (panel.classList.contains('osw-skin--pixel')) util.loadGoogleFont('Press Start 2P');
 
+    // v1.7: the shape, skin, frame or chamfer may have changed, so measure
+    // the safe text area again (see SAFE AREA below).
+    updateSafeArea(panel);
+
     // Effects: start, swap, or update.
     if ('effect' in cfg) {
       const name = kebab(cfg.effect || 'none');
@@ -473,14 +478,224 @@
   }
 
   /* ------------------------------------------------------------------
-     FIT TEXT (from Info Panel) — shrink 1px at a time until it fits
+     SAFE AREA (v1.7) — the box text can never leave
+     ------------------------------------------------------------------
+     Each shape used to pad its content by a fixed guess (e.g. "pad-x plus
+     60% of the chamfer"). That breaks when the panel is a different height,
+     the frame is thicker, or the shape is unusual (cloud, top tab).
+
+     Instead, measure the shape that's actually drawn:
+       1. Build an inside(x, y) test for the fill's real outline:
+            polygon clip-path  -> point-in-polygon on its resolved corners
+            rounded corners    -> rounded-rectangle test (border-radius)
+            mask (cloud)       -> the same blobs the CSS mask stamps
+       2. For every 2px row, find how far left and right the shape reaches
+          from the middle, then pull both ends in by the frame width + a gap.
+       3. Find the largest rectangle that fits in those rows (also keeping
+          the frame width + gap from the top and bottom edges).
+     The result goes into --osw-safe-l/-t/-r/-b on the panel, and the content
+     padding uses max(the skin's padding, the safe inset). So designs that
+     already had room look exactly the same; only tight ones get pushed in.
+
+     It runs whenever apply() changes the look and whenever the panel
+     changes size (one shared ResizeObserver), then fires an "osw:safearea"
+     event on the panel so widgets can re-fit their text.
+     Opt out per panel with data-osw-safe="off". Tune the gap with
+     --osw-safe-gap (default 6px).
      ------------------------------------------------------------------ */
+  const SAFE_STEP = 2;          // row spacing in px
+  // The cloud's blobs: [width%, height%, x%, y%] of each ellipse's box, as
+  // positioned by the CSS mask (keep in step with .osw-shape--cloud), plus
+  // the rectangle that fills the bottom middle.
+  const CLOUD_BLOBS = [[30, 60, 100, 100], [50, 100, 70, 0], [36, 68, 0, 100], [26, 40, 27, 18]];
+
+  // Resolve any CSS length (calc(100% - 26px), var(--osw-frame-w), ...) by
+  // letting the browser lay out a tiny probe. offsetLeft/offsetWidth are
+  // layout values, so this also works inside scaled thumbnails.
+  function probeIn(host) {
+    const pr = document.createElement('i');
+    pr.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;';
+    host.appendChild(pr);
+    return pr;
+  }
+
+  // "polygon(evenodd, 26px 0px, calc(100% - 26px) 0px, ...)" -> [[x, y], ...] in px.
+  function polygonPoints(fill, clip) {
+    let body = clip.slice(clip.indexOf('(') + 1, clip.lastIndexOf(')')).trim();
+    // Split on commas that aren't inside calc(...).
+    const parts = []; let depth = 0, cur = '';
+    for (const ch of body) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; } else cur += ch;
+    }
+    if (cur.trim()) parts.push(cur.trim());
+    if (/^(evenodd|nonzero)$/.test(parts[0])) parts.shift();
+    const pr = probeIn(fill);
+    const pts = parts.map(pt => {
+      // x and y are split by the first space that isn't inside calc(...).
+      let d = 0, cut = -1;
+      for (let i = 0; i < pt.length; i++) {
+        if (pt[i] === '(') d++; else if (pt[i] === ')') d--;
+        else if (pt[i] === ' ' && d === 0) { cut = i; break; }
+      }
+      pr.style.left = pt.slice(0, cut); pr.style.top = pt.slice(cut + 1);
+      return [pr.offsetLeft, pr.offsetTop];
+    });
+    pr.remove();
+    return pts;
+  }
+
+  function insidePolygon(pts) {
+    return (x, y) => {
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const [xi, yi] = pts[i], [xj, yj] = pts[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+  }
+
+  function insideRounded(cs, W, H) {
+    const rad = (v) => { const n = parseFloat(v) || 0; return String(v).trim().endsWith('%') ? n / 100 * Math.min(W, H) : n; };
+    let tl = rad(cs.borderTopLeftRadius), tr = rad(cs.borderTopRightRadius),
+        br = rad(cs.borderBottomRightRadius), bl = rad(cs.borderBottomLeftRadius);
+    // CSS shrinks radii that don't fit (e.g. 999px on a pill) by one factor.
+    const f = Math.min(1, W / (tl + tr || 1), W / (bl + br || 1), H / (tl + bl || 1), H / (tr + br || 1));
+    tl *= f; tr *= f; br *= f; bl *= f;
+    const corner = (x, y, cx, cy, r) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+    return (x, y) => {
+      if (x < 0 || y < 0 || x > W || y > H) return false;
+      if (x < tl && y < tl) return corner(x, y, tl, tl, tl);
+      if (x > W - tr && y < tr) return corner(x, y, W - tr, tr, tr);
+      if (x > W - br && y > H - br) return corner(x, y, W - br, H - br, br);
+      if (x < bl && y > H - bl) return corner(x, y, bl, H - bl, bl);
+      return true;
+    };
+  }
+
+  function insideCloud(W, H) {
+    const ell = CLOUD_BLOBS.map(([bw, bh, px, py]) => {
+      const w = W * bw / 100, h = H * bh / 100;
+      const x0 = (W - w) * px / 100, y0 = (H - h) * py / 100;
+      return [x0 + w / 2, y0 + h / 2, w / 2 * 0.98, h / 2 * 0.98];
+    });
+    const rw = W * 0.67, rh = H * 0.58, rx = (W - rw) / 2, ry = H - rh;
+    return (x, y) => (x >= rx && x <= rx + rw && y >= ry && y <= H) ||
+      ell.some(([cx, cy, a, b]) => ((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 <= 1);
+  }
+
+  // Returns { l, t, r, b } insets in px from the content box's edges, or null.
+  function measureSafeArea(panel) {
+    const fill = panel.querySelector(':scope > .osw-panel__fill');
+    const content = panel.querySelector(':scope > .osw-panel__content');
+    if (!fill || !content) return null;
+    const W = fill.offsetWidth, H = fill.offsetHeight;
+    if (!W || !H || !panel.offsetWidth) return null;          // hidden: the ResizeObserver tries again later
+
+    const cs = getComputedStyle(fill);
+    const mask = cs.maskImage || cs.webkitMaskImage || 'none';
+    let inside;
+    if (cs.clipPath && cs.clipPath.startsWith('polygon')) inside = insidePolygon(polygonPoints(fill, cs.clipPath));
+    else if (mask !== 'none' && panel.classList.contains('osw-shape--cloud')) inside = insideCloud(W, H);
+    else inside = insideRounded(cs, W, H);                    // also covers a plain rectangle
+
+    // Margin: frame width + gap, resolved by the browser.
+    const pr = probeIn(panel);
+    pr.style.width = 'calc(var(--osw-frame-w, 3px) + var(--osw-safe-gap, 6px))';
+    const m = pr.offsetWidth;
+    pr.remove();
+
+    // 1-2. Each row's reach from the middle, pulled in by the margin.
+    const rows = [];
+    const cx = W / 2;
+    for (let y = SAFE_STEP / 2; y < H; y += SAFE_STEP) {
+      if (!inside(cx, y)) { rows.push(null); continue; }
+      let L = cx, R = cx;
+      while (L > 0 && inside(L - 1, y)) L--;
+      while (R < W && inside(R + 1, y)) R++;
+      rows.push(R - L - 2 * m > 0 ? [L + m, R - m] : null);
+    }
+    // 3. Largest rectangle over rows i..j, also staying m away from the
+    // shape's top and bottom: rows i-k..j+k must all exist.
+    const n = rows.length, k = Math.ceil(m / SAFE_STEP);
+    let best = null, bestArea = 0;
+    for (let i = k; i < n - k; i++) {
+      let lo = -Infinity, hi = Infinity, ok = true;
+      for (let q = i - k; q <= i + k; q++) { const r = rows[q]; if (!r) { ok = false; break; } lo = Math.max(lo, r[0]); hi = Math.min(hi, r[1]); }
+      if (!ok) continue;
+      for (let j = i; j < n - k; j++) {
+        if (j > i) { const r = rows[j + k]; if (!r) break; lo = Math.max(lo, r[0]); hi = Math.min(hi, r[1]); }
+        if (hi <= lo) break;
+        const area = (hi - lo) * (j - i + 1);
+        if (area > bestArea) { bestArea = area; best = [lo, hi, i, j]; }
+      }
+    }
+    if (!best) return null;
+    const [lo, hi, i, j] = best;
+    // Fill coordinates -> content-box coordinates.
+    const fx = fill.offsetLeft - content.offsetLeft, fy = fill.offsetTop - content.offsetTop;
+    const top = i * SAFE_STEP, bottom = (j + 1) * SAFE_STEP;
+    return {
+      l: Math.max(0, Math.ceil(fx + lo)),
+      r: Math.max(0, Math.ceil(content.offsetWidth - (fx + hi))),
+      t: Math.max(0, Math.ceil(fy + top)),
+      b: Math.max(0, Math.ceil(content.offsetHeight - (fy + bottom))),
+    };
+  }
+
+  const SAFE_VARS = ['--osw-safe-l', '--osw-safe-t', '--osw-safe-r', '--osw-safe-b'];
+  let safeObserver = null;
+  function updateSafeArea(panel) {
+    if (!panel || panel.dataset.oswSafe === 'off') return null;
+    if (typeof ResizeObserver !== 'undefined') {
+      if (!safeObserver) safeObserver = new ResizeObserver(entries => entries.forEach(e => updateSafeArea(e.target)));
+      if (!panel._oswSafeWatched) { panel._oswSafeWatched = true; safeObserver.observe(panel); }
+    }
+    // Measure with the old safe insets removed, so they can't feed back
+    // into the content box's own size.
+    SAFE_VARS.forEach(v => panel.style.removeProperty(v));
+    const safe = measureSafeArea(panel);
+    if (safe) {
+      panel.style.setProperty('--osw-safe-l', safe.l + 'px');
+      panel.style.setProperty('--osw-safe-t', safe.t + 'px');
+      panel.style.setProperty('--osw-safe-r', safe.r + 'px');
+      panel.style.setProperty('--osw-safe-b', safe.b + 'px');
+    }
+    const key = safe ? [safe.l, safe.t, safe.r, safe.b].join() : '';
+    if (key !== panel._oswSafeKey) {
+      panel._oswSafeKey = key;
+      panel.dispatchEvent(new CustomEvent('osw:safearea', { detail: safe }));
+    }
+    return safe;
+  }
+
+  /* ------------------------------------------------------------------
+     FIT TEXT (from Info Panel) — shrink 1px at a time until it fits
+     ------------------------------------------------------------------
+     v1.7: sizes are multiplied by the panel's text size (fontScale), and
+     opts.block (an element that must not overflow vertically, e.g. the
+     box holding all the text lines) makes it shrink until the text also
+     fits the height. */
+  function fontScaleOf(el) {
+    const panel = el.closest && el.closest('.osw-panel');
+    const v = panel ? parseFloat(getComputedStyle(panel).getPropertyValue('--osw-font-scale')) : NaN;
+    return isFinite(v) && v > 0 ? Math.min(3, v) : 1;
+  }
   function fitText(el, opts) {
-    const o = Object.assign({ max: 26, min: 14, reserved: 0, container: el.parentElement }, opts);
-    let px = o.max;
+    const o = Object.assign({ max: 26, min: 14, reserved: 0, container: el.parentElement, block: null, floor: 9 }, opts);
+    const k = fontScaleOf(el);
+    const max = Math.round(o.max * k), min = Math.min(max, Math.round(o.min * k));
+    let px = max;
     el.style.fontSize = px + 'px';
     const room = o.container.clientWidth - o.reserved;
-    while (el.scrollWidth > room && px > o.min) {
+    while (el.scrollWidth > room && px > min) {
+      px -= 1;
+      el.style.fontSize = px + 'px';
+    }
+    // Height: never let the text spill out of the box, even below `min`.
+    if (o.block) while (o.block.scrollHeight > o.block.clientHeight + 1 && px > o.floor) {
       px -= 1;
       el.style.fontSize = px + 'px';
     }
@@ -1862,6 +2077,81 @@
   // Options can be given per type ({ impact: { shake: 10 } }) or flat with
   // a prefix ({ impactShake: 10 }) so one flat Streamer.bot payload can
   // tune several bursts at once without the names clashing.
+  /* ------------------------------------------------------------------
+     ALERTS (v1.8) — per-alert styles
+     ------------------------------------------------------------------
+     EFFECTS and ALERTS are separate ideas:
+       - an EFFECT is the ambient animation over the normal display
+         (AMBIENT_EFFECTS: hexglow, electric, trace, shine, embers);
+       - an ALERT is a one-off celebration when an event happens
+         (ALERT_BURSTS: confetti, coins, gems, images, an ember flare,
+         and the frame bursts shockwave and impact).
+     A look can carry alert styles under look.alerts:
+
+       alerts: {
+         default:           { bursts: ['shockwave'], color: 'platform' },
+         follow:            { headline: 'Welcome aboard!' },
+         'subscribe.twitch': { bursts: ['confetti', 'impact'], color: '#ffd23f' }
+       }
+
+     Each entry only lists what it changes. resolveAlert() layers them:
+       ALERT_DEFAULTS  <  default  <  <kind>  <  <kind>.<platform>
+     A widget decides which KINDS it has (the Info Panel: follow, subscribe,
+     gift, cheer, ...), so the same system serves every widget.
+
+     An alert style's keys:
+       color      "platform" (the platform's brand color), "theme" (the
+                  look's alert color), or any CSS color
+       headline   text instead of the widget's own ("New Follower!"), or null
+       bursts     list of ALERT_BURSTS names, played together
+       intensity  0.5 to 2: how many particles (1 = each burst's normal)
+       duration   seconds the alert stays up
+       images     image URLs for the "images" burst (comma-separated or list)
+       flare      true: the ambient effect flares too (shine sweeps, embers...)
+     ------------------------------------------------------------------ */
+  const AMBIENT_EFFECTS = ['hexglow', 'electric', 'trace', 'shine', 'embers'];
+  const ALERT_BURSTS = [
+    { id: 'shockwave', label: 'Shockwave', note: 'rings out from the frame' },
+    { id: 'impact', label: 'Impact', note: 'flash and shake' },
+    { id: 'confetti', label: 'Confetti', note: 'party cannons' },
+    { id: 'coins', label: 'Coins', note: 'gold coin fountain' },
+    { id: 'gems', label: 'Gems', note: 'Bits-style gems' },
+    { id: 'embers', label: 'Ember flare', note: 'a rush of embers' },
+    { id: 'images', label: 'Images', note: 'your own images (emotes, logos)' },
+  ];
+  const ALERT_DEFAULTS = { color: 'platform', headline: null, bursts: ['shockwave'], intensity: 1, duration: 5, images: '', flare: true };
+
+  function resolveAlert(alerts, kind, platform) {
+    const a = alerts && typeof alerts === 'object' ? alerts : {};
+    const k = kebab(kind || ''), pf = kebab(platform || '');
+    const out = Object.assign({}, ALERT_DEFAULTS, a.default || {}, k ? a[k] || {} : {}, k && pf ? a[k + '.' + pf] || {} : {});
+    if (!Array.isArray(out.bursts)) out.bursts = String(out.bursts || '').split(',').map(x => x.trim()).filter(Boolean);
+    out.intensity = Math.max(0.25, Math.min(3, Number(out.intensity) || 1));
+    out.duration = Math.max(1, Math.min(60, Number(out.duration) || ALERT_DEFAULTS.duration));
+    return out;
+  }
+
+  // Play an alert style's celebration on a panel: the effect flare plus
+  // every burst, scaled by intensity. Coloring the panel and showing the
+  // text are the widget's job (it knows its platforms and headlines).
+  function playAlert(panel, style) {
+    if (!panel) return Promise.resolve();
+    const st = style && style.bursts ? style : resolveAlert(null);
+    if (st.flare !== false) play(panel);
+    const k = st.intensity || 1;
+    return Promise.all((st.bursts || []).map(name => {
+      const t = kebab(name);
+      if (BURSTS[t]) return burst(panel, t, {});
+      const preset = PARTICLE_PRESETS[t];
+      if (!preset) { console.warn(`[OSWPanels] Unknown alert burst "${name}".`); return Promise.resolve(); }
+      const base = Number(preset.defaults && preset.defaults.burst) || 40;
+      const o = { count: Math.max(1, Math.round(base * k)) };
+      if (t === 'embers') Object.assign(o, { count: Math.round(80 * k), from: 'inside', rise: 110, sparks: 0.25, spill: 140, layer: 'front' });
+      if (t === 'images') { if (!st.images) return Promise.resolve(); o.src = st.images; }
+      return burst(panel, t, o);
+    }));
+  }
+
   function pickKeys(o, keys, prefix) {
     const out = {};
     keys.forEach(k => {
@@ -1896,9 +2186,9 @@
   global.OSWPanels = {
     VERSION, EFFECT_META, SHAPES, SKINS, TEXTURES, MASK_TEXTURES, PATTERNS, PALETTES, MOTIONS, PRESETS, EFFECTS,
     ICON_SHAPES, ICON_POSITIONS,
-    apply, reset, upgrade, init, show, hide, swap, play, fitText, readURL, readData,
+    apply, reset, upgrade, init, show, hide, swap, play, fitText, updateSafeArea, fontScaleOf, readURL, readData,
     registerEffect, registerParticles, PARTICLE_PALETTES, PARTICLE_PRESETS,
-    burst, registerBurst, BURSTS, GEM_TIERS, normalize, assets, util,
+    burst, registerBurst, BURSTS, GEM_TIERS, AMBIENT_EFFECTS, ALERT_BURSTS, ALERT_DEFAULTS, resolveAlert, playAlert, normalize, assets, util,
     fromInfoPanelSnapshot, fromDonorTicker, fromSocialRotator
   };
 })(window);

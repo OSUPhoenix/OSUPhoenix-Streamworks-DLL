@@ -56,7 +56,7 @@ namespace OSWTools.BlowUpEmote
         public const string Tool = "BlowUpEmote";
 
         /// <summary>Build tag of the DLL code. Logged by Start/Cancel/Status so you can confirm the rebuilt DLL is the one Streamer.bot is running.</summary>
-        public const string BuildTag = "2.3.0";
+        public const string BuildTag = "2.8.0";
 
         /// <summary>Lock for any load -> change -> save sequence. See header.</summary>
         public static readonly object SyncRoot = new object();
@@ -106,6 +106,7 @@ namespace OSWTools.BlowUpEmote
 
         private static void Warn(string text)
         {
+            BueLog.Write("WARN  " + text);   // our own log first - it always works
             try { if (Logger != null) Logger("[BUE] " + text); } catch { /* logging must never break the tool */ }
         }
 
@@ -305,6 +306,61 @@ namespace OSWTools.BlowUpEmote
                 SaveCached(ImagesFile(targetId), cache);
                 return true;
             }
+        }
+    }
+
+    /// <summary>
+    /// BUE's OWN LOG FILE:  OSWData/BlowUpEmote/bue_log.txt
+    ///
+    /// WHY: CPH.LogInfo detail lines don't always show up in Streamer.bot's log, so
+    /// every important decision is also appended here, one line each, with a time.
+    /// Open the file in Notepad after a test and read it top to bottom.
+    ///
+    /// Safe by design: Write() never throws and never blocks the game; the file is
+    /// trimmed automatically so it can't grow forever.
+    /// </summary>
+    public static class BueLog
+    {
+        private static readonly object _lock = new object();
+        private const long MaxBytes = 400 * 1024;      // trim when bigger than this
+        private const long KeepBytes = 150 * 1024;     // ...down to roughly this much
+
+        public static string FilePath
+        {
+            get
+            {
+                // Borrow the folder of a known data file, so we don't depend on how
+                // OSWData treats file extensions.
+                string folder = Path.GetDirectoryName(OSWData.GetFilePath(BueStore.Tool, "config_default"));
+                return Path.Combine(folder, "bue_log.txt");
+            }
+        }
+
+        public static void Write(string line)
+        {
+            try
+            {
+                lock (_lock)
+                {
+                    string path = FilePath;
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+                    if (File.Exists(path) && new FileInfo(path).Length > MaxBytes)
+                    {
+                        // Keep the newest part (cut at a line start).
+                        string all = File.ReadAllText(path);
+                        int cut = all.Length - (int)KeepBytes;
+                        if (cut > 0)
+                        {
+                            int nl = all.IndexOf('\n', cut);
+                            all = nl >= 0 ? all.Substring(nl + 1) : all.Substring(cut);
+                            File.WriteAllText(path, "--- older lines trimmed ---\r\n" + all);
+                        }
+                    }
+                    File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "  " + line + "\r\n");
+                }
+            }
+            catch { /* logging must never break the tool */ }
         }
     }
 }

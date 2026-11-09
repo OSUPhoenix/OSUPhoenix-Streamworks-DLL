@@ -135,6 +135,7 @@ namespace OSWTools.BlowUpEmote
             result.GrowthApplied = newFill - state.FillPercent;
             state.FillPercent = newFill;
             state.FillAsOfUtc = nowUtc;
+            state.EmptySinceUtc = newFill > 0 ? (DateTime?)null : state.EmptySinceUtc;   // not empty any more: countdown stops
             result.NewFillPercent = newFill;
 
             // ── 3. Leaderboard bookkeeping ─────────────────────────────
@@ -164,6 +165,8 @@ namespace OSWTools.BlowUpEmote
                     state.FillPercent = 0;
                     state.RoundEmote = "";
                     state.RoundImageUrl = "";
+                    state.EmptySinceUtc = null;
+                    ClearPendingPick(state);
                 }
 
                 if (config.ResetOnPop)
@@ -236,6 +239,10 @@ namespace OSWTools.BlowUpEmote
                     double before = state.FillPercent;
                     state.FillPercent = Math.Max(0, before - config.DeflatePerSecond * secs);
                     changed = state.FillPercent != before;
+                    // Drained to nothing: remember the TRUE moment it hit 0 (not "now" -
+                    // nobody may have looked for a while), so the auto-end countdown is right.
+                    if (before > 0 && state.FillPercent <= 0)
+                        state.EmptySinceUtc = state.FillAsOfUtc.Value.AddSeconds(before / config.DeflatePerSecond);
                 }
             }
             state.FillAsOfUtc = nowUtc;
@@ -433,6 +440,15 @@ namespace OSWTools.BlowUpEmote
             if (double.IsNaN(c.DeflatePerSecond) || c.DeflatePerSecond < 0) c.DeflatePerSecond = 0;
             if (c.DeflatePerSecond > 100) c.DeflatePerSecond = 100;
             c.DeflatePerSecond = Math.Round(c.DeflatePerSecond, 2);
+
+            // Progress bar colour: must be "#RRGGBB", otherwise the default orange.
+            c.ProgressBarColor = NormalizeHexColor(c.ProgressBarColor, "#ff7a1a");
+
+            // Auto-end: 10 s to 1 hour; the warning can't be longer than the wait.
+            if (c.AutoEndSeconds < 10) c.AutoEndSeconds = 10;
+            if (c.AutoEndSeconds > 3600) c.AutoEndSeconds = 3600;
+            if (c.AutoEndWarnSeconds < 0) c.AutoEndWarnSeconds = 0;
+            if (c.AutoEndWarnSeconds > c.AutoEndSeconds) c.AutoEndWarnSeconds = c.AutoEndSeconds;
         }
 
         /// <summary>
@@ -450,18 +466,152 @@ namespace OSWTools.BlowUpEmote
             state.RoundImageUrl = "";
             state.RoundContributors.Clear();
             state.LastContributionAtUtc.Clear();
+            state.EmptySinceUtc = null;
+            ClearPendingPick(state);
+        }
+
+        // ── Auto-end (inactivity timeout) ────────────────────────────────
+
+        /// <summary>PURE: "#RRGGBB" in, same out (lower-case); anything else returns the fallback.</summary>
+        public static string NormalizeHexColor(string value, string fallback)
+        {
+            string v = (value ?? "").Trim();
+            if (v.Length == 7 && v[0] == '#')
+            {
+                bool ok = true;
+                for (int i = 1; i < 7; i++)
+                    if (!Uri.IsHexDigit(v[i])) { ok = false; break; }
+                if (ok) return v.ToLowerInvariant();
+            }
+            return fallback;
+        }
+
+        // ── Chat message wording (PURE, so it can be tested and changed in one place) ──
+
+        /// <summary>A round started: tell chat what to spam.</summary>
+        public static string MsgStarted(string user, string emote)
+        {
+            return string.IsNullOrWhiteSpace(user)
+                ? "Time to blow up " + emote + "! We need more " + emote + " to fill it up!"
+                : "@" + user + " wants to blow up " + emote + "! We need more " + emote + " to fill it up!";
+        }
+
+        /// <summary>Someone popped it.</summary>
+        public static string MsgPopped(string user, string emote)
+        {
+            return "@" + user + " popped the " + emote + " balloon! Nice one!";
+        }
+
+        /// <summary>The balloon sat empty too long.</summary>
+        public static string MsgTimedOut(string emote)
+        {
+            return "The " + emote + " balloon went flat - nobody blew it up in time. Better luck next round!";
+        }
+
+        /// <summary>The streamer cancelled the round.</summary>
+        public static string MsgCancelled(string emote)
+        {
+            return "The " + emote + " round was cancelled.";
+        }
+
+        /// <summary>
+        /// PURE: when will this round end by itself? null = never (switched off,
+        /// rounds off, no round running, or the balloon will never be empty).
+        ///
+        /// The countdown belongs to the EMPTY balloon:
+        ///   fill is 0%                -> empty since EmptySinceUtc
+        ///   fill above 0, deflating   -> it will be empty at FillAsOfUtc + fill / rate
+        ///   fill above 0, not deflating -> never empty -> no deadline
+        /// and the round ends AutoEndSeconds after that moment.
+        /// </summary>
+        public static DateTime? AutoEndAt(BueState state, BueTargetConfig config)
+        {
+            if (state == null || config == null) return null;
+            if (!config.StartHidden || !config.AutoEndEnabled || !state.Active) return null;
+
+            DateTime emptyAt;
+            if (state.FillPercent <= 0)
+            {
+                if (!state.EmptySinceUtc.HasValue) return null;
+                emptyAt = state.EmptySinceUtc.Value;
+            }
+            else if (config.DeflatePerSecond > 0 && state.FillAsOfUtc.HasValue)
+            {
+                emptyAt = state.FillAsOfUtc.Value.AddSeconds(state.FillPercent / config.DeflatePerSecond);
+            }
+            else return null;
+
+            return emptyAt.AddSeconds(config.AutoEndSeconds);
+        }
+
+        /// <summary>PURE: seconds left before the auto-end (never below 0), or null when there is no deadline.</summary>
+        public static double? SecondsUntilAutoEnd(BueState state, BueTargetConfig config, DateTime nowUtc)
+        {
+            DateTime? at = AutoEndAt(state, config);
+            if (!at.HasValue) return null;
+            return Math.Max(0, (at.Value - nowUtc).TotalSeconds);
+        }
+
+        /// <summary>PURE: has the deadline passed?</summary>
+        public static bool IsAutoEndDue(BueState state, BueTargetConfig config, DateTime nowUtc)
+        {
+            DateTime? at = AutoEndAt(state, config);
+            return at.HasValue && nowUtc >= at.Value;
+        }
+
+        // ── "Pick again" window (see BueState.PendingPick*) ──────────────
+
+        /// <summary>How long a paid starter has to choose a different emote.</summary>
+        public const int PendingPickSeconds = 120;
+
+        /// <summary>PURE: forget any pending pick.</summary>
+        public static void ClearPendingPick(BueState state)
+        {
+            if (state == null) return;
+            state.PendingPickUserId = "";
+            state.PendingPickUserName = "";
+            state.PendingPickUntilUtc = null;
+        }
+
+        /// <summary>PURE: let this user choose a different emote for the next PendingPickSeconds.</summary>
+        public static void SetPendingPick(BueState state, string userId, string userName, DateTime nowUtc)
+        {
+            if (state == null) return;
+            state.PendingPickUserId = (userId ?? "").Trim();
+            state.PendingPickUserName = (userName ?? "").Trim();
+            state.PendingPickUntilUtc = nowUtc.AddSeconds(PendingPickSeconds);
+        }
+
+        /// <summary>
+        /// PURE: is this user the one waiting to pick, and is the window still open?
+        /// Matches on user id when both sides have one (names can be re-cased),
+        /// otherwise on the name, ignoring capitals.
+        /// </summary>
+        public static bool IsPendingPickUser(BueState state, string userId, string userName, DateTime nowUtc)
+        {
+            if (state == null || !state.Active || state.PendingPickUntilUtc == null) return false;
+            if (nowUtc > state.PendingPickUntilUtc.Value) return false;
+
+            bool bothHaveIds = !string.IsNullOrWhiteSpace(state.PendingPickUserId) && !string.IsNullOrWhiteSpace(userId);
+            if (bothHaveIds)
+                return string.Equals(state.PendingPickUserId, userId.Trim(), StringComparison.Ordinal);
+            return !string.IsNullOrWhiteSpace(state.PendingPickUserName) &&
+                   string.Equals(state.PendingPickUserName, (userName ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
         /// PURE: begin a round. Returns false (and changes nothing) if one is
         /// already running or if rounds are switched off. A round always starts empty.
         /// </summary>
-        public static bool StartRound(BueState state, BueTargetConfig config, string emote, string imageUrl)
+        public static bool StartRound(BueState state, BueTargetConfig config, string emote, string imageUrl, DateTime? nowUtc = null)
         {
             if (state == null || config == null || !config.StartHidden || state.Active) return false;
             if (string.IsNullOrWhiteSpace(emote)) return false;
+            ClearPendingPick(state);          // a new round never inherits an old pick window
             state.Active = true;
             state.FillPercent = 0;
+            state.EmptySinceUtc = nowUtc ?? DateTime.UtcNow;       // a new round starts EMPTY: the countdown starts now
+            state.FillAsOfUtc = state.EmptySinceUtc;
             state.RoundEmote = emote.Trim();
             state.RoundImageUrl = IsHttpsUrl(imageUrl) ? imageUrl.Trim() : "";
             return true;
@@ -487,6 +637,16 @@ namespace OSWTools.BlowUpEmote
             return CleanList((text ?? "").Split(new[] { ',', ';', '\r', '\n', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries));
         }
 
+        /// <summary>
+        /// The emote used when a PAID trigger (bits, power-up, sub, donation...) asked
+        /// for something we refuse and there is no usable default emote in Settings.
+        /// Twitch's own smiley, so it is a real emote everywhere on Twitch. It is
+        /// hard-coded on purpose and ignores the allowed/banned lists, so a paid
+        /// start can never fail for lack of an emote.
+        /// </summary>
+        public const string UniversalEmote = ":)";
+        public const string UniversalEmoteImage = "https://static-cdn.jtvnw.net/emoticons/v2/1/default/dark/3.0";
+
         private static bool ListHas(List<string> list, string emote)
         {
             if (list == null) return false;
@@ -497,14 +657,16 @@ namespace OSWTools.BlowUpEmote
 
         /// <summary>
         /// PURE: may this emote be PICKED for the round?
-        ///   - The streamer is always allowed (trusted; their trigger is the gate).
         ///   - Banned beats everything.
         ///   - A non-empty allowed list means "only these"; an EMPTY one means any.
+        /// The lists apply to EVERYONE, the streamer included. (Version 2.2 let the
+        /// streamer bypass them, which made the lists look broken whenever the
+        /// streamer tested their own settings. To use a listed-out emote, change
+        /// the list in Settings first.)
         /// </summary>
-        public static bool IsEmotePickAllowed(BueTargetConfig c, string emote, bool fromStreamer, out string reason)
+        public static bool IsEmotePickAllowed(BueTargetConfig c, string emote, out string reason)
         {
             reason = "";
-            if (fromStreamer) return true;
             if (ListHas(c == null ? null : c.BannedEmotes, emote)) { reason = "'" + emote + "' is on the banned list."; return false; }
             if (c != null && c.AllowedEmotes != null && c.AllowedEmotes.Count > 0 && !ListHas(c.AllowedEmotes, emote))
             { reason = "'" + emote + "' is not on the allowed list."; return false; }
@@ -625,6 +787,24 @@ namespace OSWTools.BlowUpEmote
         /// </summary>
         public static string PickEmote(OSWLib lib, string text, Dictionary<string, string> emotesInMessage, bool allowAnyWord)
         {
+            return PickEmote(lib, null, text, emotesInMessage, allowAnyWord);
+        }
+
+        /// <summary>
+        /// Same as above, plus the settings: this is the version that knows about 7TV /
+        /// BetterTTV / FrankerFaceZ. Order of the checks (first hit wins):
+        ///   1. The message's own emote data (Twitch tells us exactly which words are emotes).
+        ///   2. Twitch's channel/global emote cache.
+        ///   3. 7TV, BTTV, FFZ lists (only the ones switched on in Settings).
+        ///   4. The streamer's ALLOWED list: a name the streamer typed there counts as an emote
+        ///      even if no service knows it. This is the escape hatch for viewers.
+        ///   5. Only if allowAnyWord (streamer + picture link): the first word that isn't a link.
+        /// When step 3 finds a picture it is written into emotesInMessage[token], so the caller's
+        /// "remember pictures" code stores it like any other emote picture.
+        /// </summary>
+        public static string PickEmote(OSWLib lib, BueTargetConfig config, string text,
+                                       Dictionary<string, string> emotesInMessage, bool allowAnyWord)
+        {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
             var tokens = text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
@@ -636,6 +816,21 @@ namespace OSWTools.BlowUpEmote
             if (lib != null)
                 foreach (var t in tokens)
                     if (!string.IsNullOrEmpty(lib.GetEmoteImageUrl(t))) return t;
+
+            if (lib != null && config != null && (config.Use7TV || config.UseBTTV || config.UseFFZ))
+                foreach (var t in tokens)
+                {
+                    if (IsHttpsUrl(t) || t.StartsWith("!")) continue;
+                    string pic = lib.GetThirdPartyEmoteImage(t, config.Use7TV, config.UseBTTV, config.UseFFZ);
+                    if (pic.Length == 0) continue;
+                    if (emotesInMessage != null) emotesInMessage[t] = pic;
+                    return t;
+                }
+
+            if (config != null && config.AllowedEmotes != null && config.AllowedEmotes.Count > 0)
+                foreach (var t in tokens)
+                    foreach (var a in config.AllowedEmotes)
+                        if (string.Equals(a, t, StringComparison.Ordinal)) return t;
 
             if (allowAnyWord)
                 foreach (var t in tokens)
@@ -687,6 +882,10 @@ namespace OSWTools.BlowUpEmote
             sb.Append(c.StartHidden
                 ? "The balloon is hidden until you start a round, and hides again after it pops. "
                 : "The balloon is always on screen. ");
+            if (c.StartHidden && c.AutoEndEnabled)
+                sb.Append("A round ends by itself once the balloon has sat at 0% for " + c.AutoEndSeconds + "s" +
+                          (c.AutoEndWarnSeconds > 0 ? " (the emote flashes red for the last " + c.AutoEndWarnSeconds + "s)" : "") +
+                          (c.DeflatePerSecond > 0 ? ". " : " - it only drains to 0% if deflation is on. "));
 
             int nAllow = c.AllowedEmotes == null ? 0 : c.AllowedEmotes.Count;
             int nBan = c.BannedEmotes == null ? 0 : c.BannedEmotes.Count;

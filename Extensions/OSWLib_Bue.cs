@@ -142,11 +142,13 @@ namespace OSWTools
 
                 bool wasActive;
                 double wasFill;
+                string wasEmote;
                 lock (BueStore.SyncRoot)
                 {
                     BueState state = BueStore.LoadState(targetId);
                     wasActive = state.Active;
                     wasFill = state.FillPercent;
+                    wasEmote = state.RoundEmote ?? "";
                     BlowUpEmoteEngine.CancelRound(state);
                     BueStore.SaveState(targetId, state);
                 }
@@ -156,6 +158,9 @@ namespace OSWTools
                 lock (BueStore.SyncRoot) { after = BueStore.LoadState(targetId); }
 
                 BueSendState(targetId, false, true);
+                if (wasActive && wasEmote.Length > 0)
+                    BueAnnounce(BueStore.LoadConfig(targetId), BlowUpEmoteEngine.MsgCancelled(wasEmote));
+                BueLog.Write("CANCEL  was " + (wasActive ? "running" : "not running") + " -> reset to idle");
                 message = "[v" + BueStore.BuildTag + "] Round cancelled. Before: " + (wasActive ? "running" : "not running") +
                           ", " + wasFill.ToString("0.#") + "%.  Saved now: " + (after.Active ? "running" : "not running") +
                           ", " + after.FillPercent.ToString("0.#") + "%.  Widget told to reset.";
@@ -166,6 +171,27 @@ namespace OSWTools
                 LogError("[BUE] BueCancelRound failed: " + ex.Message);
                 message = "[v" + BueStore.BuildTag + "] Error: " + ex.Message;
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Download fresh 7TV/BTTV/FFZ lists now and log the result (counts or the error)
+        /// to bue_log.txt. Run from the "Blow Up Emote - Refresh Emotes" action: this is
+        /// also the quickest way to check that each service is reachable from your PC.
+        /// </summary>
+        public string BueRefreshEmotes(string targetId)
+        {
+            try
+            {
+                BueTargetConfig c = BueStore.LoadConfig(targetId);
+                string report = RefreshThirdPartyEmotes(c.Use7TV, c.UseBTTV, c.UseFFZ);
+                BueLog.Write("EMOTES refresh:\n  " + report);
+                return "[v" + BueStore.BuildTag + "] Emote lists:\n  " + report;
+            }
+            catch (Exception ex)
+            {
+                BueLog.Write("EMOTES refresh error: " + ex.Message);
+                return "[v" + BueStore.BuildTag + "] Error: " + ex.Message;
             }
         }
 
@@ -197,17 +223,21 @@ namespace OSWTools
                 return false;
             }
 
-            emote = BlowUpEmoteEngine.PickEmote(this, text, found, fromStreamer);
+            // Everyone, the streamer included, must name a REAL emote. The one exception: the
+            // streamer may use any word (a 7TV/BTTV name no API knows) if the same text also
+            // carries an https picture link, because then BUE has a picture for it.
+            bool streamerCustom = fromStreamer && BlowUpEmoteEngine.FindHttpsUrl(text).Length > 0;
+            emote = BlowUpEmoteEngine.PickEmote(this, config, text, found, streamerCustom);
             if (string.IsNullOrWhiteSpace(emote))
             {
                 message = fromStreamer
-                    ? "No emote name found in the text."
+                    ? "No real emote found in the text (a custom 7TV/BTTV name needs a picture link: 'name https://...')."
                     : "No recognised emote in the message from '" + who + "'.";
                 return false;
             }
 
             string reason;
-            if (!BlowUpEmoteEngine.IsEmotePickAllowed(config, emote, fromStreamer, out reason))
+            if (!BlowUpEmoteEngine.IsEmotePickAllowed(config, emote, out reason))
             {
                 message = "Refused: " + reason;
                 emote = "";
@@ -225,17 +255,42 @@ namespace OSWTools
         //             ->  whoever pops it wins  ->  balloon hides until the next Start.
         //
         // THE EMOTE FOR THE ROUND comes from the trigger's text ("!blowup Kappa",
-        // or a reward's text box) and lives in the game state - it does NOT change
-        // your Settings. The Settings emote is only the DEFAULT, used when a Start
-        // carries no emote. A viewer's pick must pass the rules in
-        // BueResolveRequest (lock, real emote, banned/allowed).
+        // a reward's text box, a cheer's message) and lives in the game state - it
+        // does NOT change your Settings. The Settings emote is only the DEFAULT,
+        // used when a Start carries no emote.
         //
-        // If the pick is refused the round does NOT start (a round quietly using
-        // some other emote would waste what the viewer paid).
-        // If a round is already running nothing changes (Set Emote changes the
-        // emote mid-game; Cancel Round ends it).
+        // WHAT HAPPENS WHEN THE PICK IS REFUSED (banned, not on the allowed list,
+        // locked to the streamer, no real emote in the text):
+        //   - normal trigger (command, channel point reward...): the round does NOT
+        //     start. `outcome` = "refused". The action refunds a channel point
+        //     redemption, because the viewer paid and got nothing.
+        //   - PAID trigger (bits, power-up, sub, donation... `paid` = true): money
+        //     can't be handed back, so the round starts anyway with the DEFAULT emote
+        //     from Settings; if there is none (or your own lists refuse it) with the
+        //     universal fallback emote  :)   `outcome` = "fallback".
+        //
+        // outcome: "started", "fallback", "refused", "running", "off", "error".
+        // Returns true when a round started (outcomes started / fallback).
+        // If a round is already running nothing changes (Set Emote changes the emote
+        // mid-game; Cancel Round ends it).
         // ─────────────────────────────────────────────────────────────────
         public bool BueStartRound(
+            string targetId, string text, string emotesJson,
+            string userId, string broadcasterId, string userName, string broadcasterName,
+            out string message)
+        {
+            string outcome;
+            return BueStartRoundEx(targetId, text, emotesJson, userId, broadcasterId, userName, broadcasterName,
+                                   false, out outcome, out message);
+        }
+
+        /// <summary>Lets an action write a line into BUE's own log file (OSWData/BlowUpEmote/bue_log.txt).</summary>
+        public void BueLogLine(string line) { BueLog.Write(line); }
+
+        /// <summary>Full path of BUE's own log file.</summary>
+        public string BueLogPath() { return BueLog.FilePath; }
+
+        public bool BueStartRoundEx(
             string targetId,
             string text,
             string emotesJson,
@@ -243,54 +298,139 @@ namespace OSWTools
             string broadcasterId,
             string userName,
             string broadcasterName,
+            bool paid,
+            out string outcome,
             out string message)
+        {
+            string startedEmote, reason;
+            bool pickPending;
+            return BueStartRoundFull(targetId, text, emotesJson, userId, broadcasterId, userName, broadcasterName,
+                                     paid, out outcome, out message, out startedEmote, out reason, out pickPending);
+        }
+
+        /// <summary>
+        /// Same as BueStartRoundEx, plus the facts an action needs to word a chat reply:
+        ///   startedEmote - the emote the round actually started with ("" if none started)
+        ///   reason       - short plain-English reason when the request was refused / not
+        ///                  honoured ("'Pepega' is on the banned list.", "a round is already running")
+        ///   pickPending  - true when the (paid) starter may now send a message with a
+        ///                  different emote to switch the round to it
+        /// </summary>
+        public bool BueStartRoundFull(
+            string targetId,
+            string text,
+            string emotesJson,
+            string userId,
+            string broadcasterId,
+            string userName,
+            string broadcasterName,
+            bool paid,
+            out string outcome,
+            out string message,
+            out string startedEmote,
+            out string reason,
+            out bool pickPending)
         {
             if (string.IsNullOrWhiteSpace(targetId)) targetId = "default";
             string tag = "[v" + BueStore.BuildTag + "] ";
+            outcome = "error";
+            startedEmote = "";
+            reason = "";
+            pickPending = false;
 
             try
             {
                 BueMigrateLegacy(targetId);
 
                 BueTargetConfig config = BueStore.LoadConfig(targetId);
+                BueLog.Write("START  1/5 request: text='" + (text ?? "") + "' user='" + userName + "' paid=" + paid +
+                             " | settings: default='" + BlowUpEmoteEngine.CurrentEmote(config) + "' who='" + config.EmoteControl +
+                             "' allowed=[" + string.Join(",", config.AllowedEmotes) + "] banned=[" + string.Join(",", config.BannedEmotes) + "]");
                 if (!config.StartHidden)
                 {
+                    outcome = "off";
+                    reason = "rounds are switched off";
                     message = tag + "Not started: rounds are switched off (Settings > 'Hide the balloon between rounds'), so the balloon is always on.";
                     return false;
                 }
 
+                // A round that has timed out must not block a new Start.
+                string expiredNote;
+                BueExpireIfDue(targetId, out expiredNote);
+
                 bool running;
                 lock (BueStore.SyncRoot) { running = BueStore.LoadState(targetId).Active; }
+                BueLog.Write("START  2/5 round already running? " + running);
                 if (running)
                 {
+                    outcome = "running";
+                    reason = "a round is already running";
                     message = tag + "Not started: a round is already running. (Set Emote changes the emote mid-game; Cancel Round ends it.)";
                     return false;
                 }
 
-                // 1) Which emote?
-                string emote, url, why;
+                // 1) Which emote? `why` collects the reason when the request is refused.
+                string emote = "", url = "", why = "", source = "";
                 Dictionary<string, string> found = new Dictionary<string, string>();
-                string source;
+                bool refused = false;
+
                 if (!string.IsNullOrWhiteSpace(text))
                 {
-                    if (!BueResolveRequest(config, text, emotesJson, userId, broadcasterId, userName, broadcasterName,
-                                           out emote, out url, out found, out why))
-                    {
-                        message = tag + "Not started: " + why;
-                        return false;
-                    }
-                    source = "from the trigger";
+                    if (BueResolveRequest(config, text, emotesJson, userId, broadcasterId, userName, broadcasterName,
+                                          out emote, out url, out found, out why))
+                        source = "from the trigger";
+                    else
+                        refused = true;
                 }
                 else
                 {
                     emote = BlowUpEmoteEngine.CurrentEmote(config);
                     url = config.ImageOverrideUrl ?? "";
                     source = "the default from Settings";
+                    string listWhy;
                     if (string.IsNullOrWhiteSpace(emote))
                     {
-                        message = tag + "Not started: no emote. Put one in the trigger (!blowup Kappa) or set a default emote in Settings.";
+                        refused = true;
+                        why = "no emote. Put one in the trigger (!blowup Kappa) or set a default emote in Settings.";
+                    }
+                    else if (!BlowUpEmoteEngine.IsEmotePickAllowed(config, emote, out listWhy))
+                    {
+                        refused = true;
+                        why = "the default emote from Settings is refused by your own lists. " + listWhy;
+                    }
+                }
+
+                BueLog.Write("START  3/5 pick result: " + (refused ? "REFUSED - " + why : "OK emote='" + emote + "' (" + source + ")"));
+                bool usedFallback = false;
+                if (refused)
+                {
+                    if (!paid)
+                    {
+                        BueLog.Write("START  4/5 refused and NOT a paid trigger -> no fallback");
+                        outcome = "refused";
+                        reason = CleanReason(why);
+                        message = tag + "Not started: " + why;
                         return false;
                     }
+
+                    // PAID trigger: start anyway. Default emote first, then the universal one.
+                    string defEmote = BlowUpEmoteEngine.CurrentEmote(config);
+                    string ignoredWhy;
+                    if (!string.IsNullOrWhiteSpace(defEmote) && BlowUpEmoteEngine.IsEmotePickAllowed(config, defEmote, out ignoredWhy))
+                    {
+                        emote = defEmote;
+                        url = config.ImageOverrideUrl ?? "";
+                        source = "the default from Settings, because the requested emote was refused";
+                    }
+                    else
+                    {
+                        emote = BlowUpEmoteEngine.UniversalEmote;
+                        url = BlowUpEmoteEngine.UniversalEmoteImage;
+                        source = "the universal fallback emote, because the requested emote was refused and there is no usable default";
+                    }
+                    usedFallback = true;
+                    BueLog.Write("START  4/5 PAID FALLBACK -> emote='" + emote + "' (" + source + ")");
+                    found = new Dictionary<string, string>();   // don't learn pictures from a refused message
                 }
 
                 // 2) Start it (one locked load -> change -> save step).
@@ -299,11 +439,21 @@ namespace OSWTools
                 {
                     BueState state = BueStore.LoadState(targetId);
                     started = BlowUpEmoteEngine.StartRound(state, config, emote, url);
+                    // Paid start that was swapped to a fallback: let the payer pick again,
+                    // but only if viewers are allowed to choose emotes at all.
+                    if (started && usedFallback && config.EmoteControl == EmoteControlMode.ChatTriggered &&
+                        (!string.IsNullOrWhiteSpace(userId) || !string.IsNullOrWhiteSpace(userName)))
+                    {
+                        BlowUpEmoteEngine.SetPendingPick(state, userId, userName, DateTime.UtcNow);
+                        pickPending = true;
+                    }
                     if (started) BueStore.SaveState(targetId, state);
                 }
 
                 if (!started)
                 {
+                    outcome = "running";
+                    reason = "a round is already running";
                     message = tag + "Not started: a round is already running.";
                     return false;
                 }
@@ -311,13 +461,205 @@ namespace OSWTools
                 if (found.Count > 0) BueStore.MergeImages(targetId, found);
 
                 BueSendState(targetId, true);
-                message = tag + "Round started with '" + emote + "' (" + source + ").";
+                BueAnnounce(config, BlowUpEmoteEngine.MsgStarted(userName, emote));
+                outcome = usedFallback ? "fallback" : "started";
+                startedEmote = emote;
+                reason = usedFallback ? CleanReason(why) : "";
+                BueLog.Write("START  5/5 DONE outcome=" + outcome + " emote='" + emote + "' pickPending=" + pickPending);
+                message = tag + "Round started with '" + emote + "' (" + source + ")." +
+                          (usedFallback ? " Reason: " + why : "");
                 return true;
             }
             catch (Exception ex)
             {
+                BueLog.Write("START  ERROR " + ex);
                 LogError("[BUE] BueStartRound failed: " + ex.Message);
+                outcome = "error";
                 message = tag + "Error: " + ex.Message;
+                return false;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // AUTO-END: end the round once the balloon has sat at 0% for AutoEndSeconds.
+        //
+        // The countdown only runs while the balloon is EMPTY (see BlowUpEmoteEngine.AutoEndAt).
+        //
+        // WHO CALLS THIS (the server is the only one who may end a round):
+        //   - the "Blow Up Emote - Expire Check" action, which the WIDGET runs when
+        //     its own countdown reaches zero (and which you can also put on a
+        //     Streamer.bot timer as a backstop, e.g. every 15 s)
+        //   - the main chat action, before it handles a message
+        //   - Start Round, so a timed-out round never blocks the next one
+        // It ends the round exactly like Cancel: no pop, no winner, widget hides.
+        // Returns true only when it actually ended a round.
+        // ─────────────────────────────────────────────────────────────────
+        public bool BueExpireIfDue(string targetId, out string message)
+        {
+            if (string.IsNullOrWhiteSpace(targetId)) targetId = "default";
+            message = "";
+
+            try
+            {
+                BueTargetConfig config = BueStore.LoadConfig(targetId);
+                string emote;
+                lock (BueStore.SyncRoot)
+                {
+                    BueState state = BueStore.LoadState(targetId);
+                    if (!BlowUpEmoteEngine.IsAutoEndDue(state, config, DateTime.UtcNow))
+                    {
+                        double? left = BlowUpEmoteEngine.SecondsUntilAutoEnd(state, config, DateTime.UtcNow);
+                        message = !state.Active ? "no round running"
+                                : left.HasValue ? "not due yet: " + left.Value.ToString("0") + "s left (fill " + state.FillPercent.ToString("0.#") + "%)"
+                                : "no countdown running (balloon is at " + state.FillPercent.ToString("0.#") + "% and " +
+                                  (config.DeflatePerSecond > 0 ? "deflating" : "not deflating, so it never empties") + ")";
+                        return false;
+                    }
+
+                    emote = state.RoundEmote ?? "";
+                    BlowUpEmoteEngine.CancelRound(state);
+                    BueStore.SaveState(targetId, state);
+                }
+
+                BueSendState(targetId, false, true);       // tell the widget: reset + hide
+                BueAnnounce(config, BlowUpEmoteEngine.MsgTimedOut(emote));
+                message = "Round ended automatically: the balloon for '" + emote + "' sat at 0% for " + config.AutoEndSeconds + "s.";
+                BueLog.Write("EXPIRE " + message);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                BueLog.Write("EXPIRE ERROR " + ex);
+                message = "Error: " + ex.Message;
+                return false;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // ROUND MESSAGES IN CHAT (started / popped / ended).
+        // Sent to EVERY platform BUE is enabled for (Settings), because all of those
+        // chats are playing. Only while rounds are on, and only if Settings >
+        // "Post round messages in chat" is ticked. Replies to ONE viewer (a rejected
+        // entry, a refund) are different: the Start action sends those to the viewer's
+        // own platform only.
+        // Never throws: a chat problem must not break the game.
+        // ─────────────────────────────────────────────────────────────────
+        private void BueAnnounce(BueTargetConfig config, string text)
+        {
+            try
+            {
+                if (config == null || !config.StartHidden || !config.AnnounceInChat) return;
+                if (string.IsNullOrWhiteSpace(text)) return;
+                foreach (string platform in config.EnabledPlatforms)
+                    SendMessageToPlatform(platform.ToLowerInvariant(), text);
+                BueLog.Write("CHAT  (all platforms) " + text);
+            }
+            catch (Exception ex) { BueLog.Write("CHAT  ERROR " + ex.Message); }
+        }
+
+        /// <summary>The balloon was popped: say who did it. Called by the main chat action.</summary>
+        public void BueAnnouncePop(string targetId, string user, string emote)
+        {
+            if (string.IsNullOrWhiteSpace(targetId)) targetId = "default";
+            if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(emote)) return;
+            BueAnnounce(BueStore.LoadConfig(targetId), BlowUpEmoteEngine.MsgPopped(user, emote));
+        }
+
+        // "Refused: 'Pepega' is on the banned list." -> "'Pepega' is on the banned list."
+        // so it reads naturally inside a chat sentence.
+        private static string CleanReason(string why)
+        {
+            string r = (why ?? "").Trim();
+            if (r.StartsWith("Refused: ", StringComparison.Ordinal)) r = r.Substring("Refused: ".Length);
+            // Not-an-emote messages are written for the log; chat gets a plain version.
+            if (r.StartsWith("No recognised emote", StringComparison.Ordinal) ||
+                r.StartsWith("No real emote found", StringComparison.Ordinal) ||
+                r.StartsWith("No emote name found", StringComparison.Ordinal))
+                r = "that isn't an emote.";
+
+            // The streamer-only lock message is written for the log (it mentions Settings);
+            // chat gets a plain version.
+            if (r.StartsWith("Ignored: choosing the emote is locked", StringComparison.Ordinal))
+                r = "viewers can't choose the emote right now.";
+            return r;
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // CLAIM A PICK  (called by the main chat action for every chat message
+        // while somebody is "pending" - see BueState.PendingPick*).
+        //
+        // A viewer paid (bits, power-up...) with an emote we refused, so the round
+        // started with a fallback. If THIS message is from that viewer, inside the
+        // time window, and holds an emote that passes the normal rules (real emote,
+        // not banned, on the allowed list), the round switches to it.
+        //
+        // A message that doesn't qualify changes nothing and the viewer keeps waiting
+        // until the window ends - so "hello chat" or a banned emote doesn't use up
+        // their one chance.
+        //
+        // Returns true only when the round's emote was switched.
+        // ─────────────────────────────────────────────────────────────────
+        public bool BueTryClaimPick(
+            string targetId, string text, string emotesJson,
+            string userId, string broadcasterId, string userName, string broadcasterName,
+            out string newEmote, out string message)
+        {
+            if (string.IsNullOrWhiteSpace(targetId)) targetId = "default";
+            newEmote = ""; message = "";
+
+            try
+            {
+                BueTargetConfig config = BueStore.LoadConfig(targetId);
+
+                // Cheap checks first, under the lock (this runs on every chat message).
+                lock (BueStore.SyncRoot)
+                {
+                    BueState peek = BueStore.LoadState(targetId);
+                    if (peek.PendingPickUntilUtc == null) return false;
+                    if (DateTime.UtcNow > peek.PendingPickUntilUtc.Value)
+                    {
+                        BlowUpEmoteEngine.ClearPendingPick(peek);       // window over: tidy up
+                        BueStore.SaveState(targetId, peek);
+                        BueLog.Write("CLAIM  window expired for '" + userName + "' - fallback emote stays");
+                        return false;
+                    }
+                    if (!BlowUpEmoteEngine.IsPendingPickUser(peek, userId, userName, DateTime.UtcNow)) return false;
+                }
+
+                string emote, url, why;
+                Dictionary<string, string> found;
+                if (!BueResolveRequest(config, text, emotesJson, userId, broadcasterId, userName, broadcasterName,
+                                       out emote, out url, out found, out why))
+                {
+                    message = "still waiting: " + why;
+                    BueLog.Write("CLAIM  '" + userName + "' message did not qualify - " + why);
+                    return false;
+                }
+
+                lock (BueStore.SyncRoot)
+                {
+                    BueState state = BueStore.LoadState(targetId);
+                    // Re-check inside the same lock that saves (round may have just ended).
+                    if (!BlowUpEmoteEngine.IsPendingPickUser(state, userId, userName, DateTime.UtcNow)) return false;
+
+                    state.RoundEmote = emote;
+                    state.RoundImageUrl = BlowUpEmoteEngine.IsHttpsUrl(url) ? url : "";
+                    BlowUpEmoteEngine.ClearPendingPick(state);
+                    BueStore.SaveState(targetId, state);
+                }
+
+                if (found.Count > 0) BueStore.MergeImages(targetId, found);
+                BueSendState(targetId, false);
+
+                newEmote = emote;
+                message = "'" + userName + "' picked '" + emote + "'; the round now uses it.";
+                BueLog.Write("CLAIM  " + message);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                BueLog.Write("CLAIM  ERROR " + ex);
+                message = "Error: " + ex.Message;
                 return false;
             }
         }
@@ -348,9 +690,16 @@ namespace OSWTools
                         "\n  Default emote (Settings): '" + BlowUpEmoteEngine.CurrentEmote(c) + "'   emote of the running round: '" + (s.RoundEmote ?? "") + "'" +
                         "\n  Who may pick the emote: " + c.EmoteControl + "   allowed list: " + (c.AllowedEmotes.Count == 0 ? "(any)" : string.Join(", ", c.AllowedEmotes)) +
                         "   banned: " + (c.BannedEmotes.Count == 0 ? "(none)" : string.Join(", ", c.BannedEmotes)) +
+                        "\n  Auto-end: " + (c.AutoEndEnabled ? "after " + c.AutoEndSeconds + "s at 0% (flash red for the last " + c.AutoEndWarnSeconds + "s)" : "off") +
+                        (BlowUpEmoteEngine.SecondsUntilAutoEnd(s, c, DateTime.UtcNow).HasValue
+                            ? "   time left: " + BlowUpEmoteEngine.SecondsUntilAutoEnd(s, c, DateTime.UtcNow).Value.ToString("0") + "s" : "") +
                         "\n  Platforms: " + string.Join(", ", c.EnabledPlatforms) +
                         "\n  Pops so far: " + s.TotalPops + "   this round contributors: " + s.RoundContributors.Count +
-                        "\n  Config file: " + BueStore.ConfigPath(targetId));
+                        "\n  Config file: " + BueStore.ConfigPath(targetId) +
+                        "\n  Emote services: Twitch always on, " + ThirdPartySummary(c.Use7TV, c.UseBTTV, c.UseFFZ) +
+                        "\n  BUE log file: " + BueLog.FilePath);
+                BueLog.Write("STATUS build " + BueStore.BuildTag + " rounds=" + c.StartHidden + " running=" + s.Active +
+                             " default='" + BlowUpEmoteEngine.CurrentEmote(c) + "'");
 
                 BueSendState(targetId, false);
             }

@@ -131,8 +131,8 @@
 
   /* ---- tabs + pickers ---- */
   .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -14px -14px 12px; padding: 6px 8px 0; }
-  .tabs button { position: relative; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 9px 9px;
-    font: 600 13.5px var(--f-display); letter-spacing: .05em; text-transform: uppercase; }
+  .tabs button { position: relative; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 9px 7px;
+    font: 600 13px var(--f-display); letter-spacing: .04em; text-transform: uppercase; }
   .tabs button[aria-selected=true] { color: var(--fg); }
   .tabs button[aria-selected=true]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--metal); }
   .pane { display: grid; gap: 14px; }
@@ -161,14 +161,46 @@
   .is-default { color: var(--muted); font-style: italic; }
   output { font-family: var(--f-mono); font-size: 11.5px; color: var(--fg); }
 
+  /* ---- [THEME] sections: each group of settings in its own framed box,
+     with a header bar, so Colors and Font & text read apart at a glance ---- */
+  .fsec { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,.015);
+    padding: 12px 14px 14px; min-width: 0; }
+  .fsec-h { display: flex; align-items: center; gap: 9px; margin: -12px -14px 12px; padding: 9px 14px;
+    border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(224,18,29,.16), transparent 65%);
+    font: 600 13.5px var(--f-display); letter-spacing: .12em; text-transform: uppercase; color: var(--fg); }
+  .fsec-h::before { content: ""; width: 3px; height: 14px; border-radius: 2px; background: var(--red); }
+  .fsec-h small { margin-left: auto; font: 400 12px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--muted); }
+  .fsec > .fields { margin: 0; }
+
+  /* ---- [ALERTS] alert list + editor ---- */
+  .alist { display: grid; gap: 6px; }
+  .arow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .arow > button { padding: 6px 10px; font: 600 13px var(--f-display); letter-spacing: .02em; }
+  .arow > button.kind { flex: 1 1 180px; text-align: left; display: flex; justify-content: space-between; gap: 8px; }
+  .arow > button.pf { font-weight: 500; color: var(--muted); }
+  .arow > button.sel { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; color: var(--fg); }
+  .arow .badge { font: 600 10.5px var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--red-hi); }
+  .arow > button.pf.custom::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--red-hi); vertical-align: 1px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 6px 10px; border-radius: 999px; font: 600 13px var(--f-display); }
+  .chip[aria-pressed=true] { border-color: var(--red); background: rgba(224,18,29,.16); color: var(--fg); }
+  .chip small { font: 400 11.5px var(--f-body); color: var(--muted); margin-left: 5px; }
+  .from { font: 400 11px var(--f-body); color: var(--muted); text-transform: none; letter-spacing: 0; }
+
   /* ---- color themes ---- */
-  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-  .theme { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 1px 10px; align-items: center; text-align: left; padding: 9px 11px; }
-  .theme .dots { grid-row: 1 / 3; display: flex; }
-  .theme .dots i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,.25); margin-left: -5px; }
-  .theme .dots i:first-child { margin-left: 0; }
-  .theme .t-name { font: 600 14px var(--f-display); letter-spacing: .03em; }
-  .theme .t-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); grid-auto-rows: max-content; gap: 8px;
+    max-height: 340px; overflow-y: auto; padding: 2px 4px 4px 2px; }
+  .theme { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 1px 10px; align-items: center; text-align: left; padding: 8px 10px; }
+  .theme.on { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset, 0 0 14px rgba(224,18,29,.25); }
+  /* A tiny panel: the frame color around the fill, "Aa" in the text color,
+     and the two accents as a dot and a bar. */
+  .theme .tp { grid-row: 1 / 3; width: 54px; height: 32px; border-radius: 4px; padding: 2px; }
+  .theme .tp b { position: relative; display: flex; align-items: center; height: 100%; border-radius: 2px; padding: 0 6px; gap: 5px;
+    font: 700 12px var(--f-display); }
+  .theme .tp b i { width: 7px; height: 7px; border-radius: 50%; }
+  .theme .tp b u { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 2px; border-radius: 1px; }
+  .theme .t-name { font: 600 14px var(--f-display); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .theme .t-note { font-size: 12px; color: var(--muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ---- connect form (only when opened without a config) ---- */
   .connect { margin: 16px 18px 0; }
@@ -247,22 +279,7 @@
         <p class="hint" id="all-hint">Each widget keeps its own saved look; this only copies to them when you save.</p>
       </div>
 
-      <div>
-        <p class="sub-head">Test an alert</p>
-        <div class="row">
-          <select id="t-burst" aria-label="Burst to play with the test alert">
-            <option value="">No burst</option>
-            <option value="impact">Impact</option>
-            <option value="shockwave">Shockwave</option>
-            <option value="gems">Gems</option>
-            <option value="confetti">Confetti</option>
-            <option value="coins">Coins</option>
-            <option value="impact,shockwave,gems">Impact + shockwave + gems</option>
-          </select>
-          <label class="field-inline" for="t-amount">Amount <input type="number" id="t-amount" value="500" min="0" style="width:90px"></label>
-          <button type="button" id="t-go">Play test alert</button>
-        </div>
-      </div>
+      <p class="hint">Alerts have their own tab now (<b>Alerts</b>): a style per alert kind, each with a Test button.</p>
     </div>
   </div>
 
@@ -557,6 +574,7 @@
   $('frame').addEventListener('load', () => {
     frameReady = true;
     pushPreview(true);
+    alertKinds = null; setTimeout(askAlertKinds, 300); setTimeout(askAlertKinds, 1500);   // [ALERTS]
     // The overlay reports while it's still loading, so by now it has usually
     // spoken already. Only arm the "didn't start" note if it hasn't.
     if (gotReport) return;
@@ -651,8 +669,8 @@
   // SAVE  (+ apply to all)
   // ---------------------------------------------------------------------------
   // The theme keys, per INTEGRATION.md.
-  const THEME_KEYS = ['accent', 'accent2', 'alert', 'text', 'textDim', 'fill', 'font', 'fontIsGoogle', 'weight',
-    'strokeWidth', 'strokeColor', 'textShadow', 'textureColor'];
+  const THEME_KEYS = ['accent', 'accent2', 'alert', 'text', 'textDim', 'fill', 'font', 'fontIsGoogle', 'fontScale', 'weight',
+    'strokeWidth', 'strokeColor', 'textShadow', 'textureColor', 'frameColor'];
 
   $('save').addEventListener('click', async () => {
     const styles = { [current]: clone(look) };
@@ -738,22 +756,36 @@
   }
 
   // ---------------------------------------------------------------------------
-  // TEST ALERT
+  // [ALERTS] TEST ALERT: play one alert kind (optionally one platform's
+  // version) with the look as it is right now, unsaved changes included.
   // ---------------------------------------------------------------------------
-  $('t-go').addEventListener('click', () => {
-    const burst = $('t-burst').value;
-    const amount = Number($('t-amount').value) || 0;
+  function testAlert(kind, platform) {
     const fb = $('stage').querySelector('.osw-panel.fallback');
-    if (fb) {
+    if (fb) {                                      // no real overlay: just show the celebration
+      const st = P.resolveAlert(look.alerts, kind, platform);
       fb.classList.add('is-alert');
-      P.play(fb);
-      if (burst) P.burst(fb, burst.split(','), { amount });
-      setTimeout(() => fb.classList.remove('is-alert'), 3000);
+      P.playAlert(fb, st);
+      setTimeout(() => fb.classList.remove('is-alert'), st.duration * 1000);
       return;
     }
+    pushPreview(true);                             // make sure the frame has the latest alerts
     const f = $('frame');
-    f.contentWindow.postMessage({ type: 'osw-test-alert', burst: burst ? burst.split(',') : null, amount,
-      detail: amount + ' bits', category: 'TwitchBits' }, '*');
+    if (f.contentWindow) f.contentWindow.postMessage({ type: 'osw-test-alert', kind, platform: platform || '' }, '*');
+  }
+
+  // The widget's alert kinds come from the overlay itself ('osw-get-alerts'),
+  // so each widget brings its own list. Asked on every frame load.
+  let alertKinds = null;                           // null = not answered (yet)
+  function askAlertKinds() {
+    const f = $('frame');
+    try { if (!f.hidden && f.contentWindow) f.contentWindow.postMessage({ type: 'osw-get-alerts' }, '*'); } catch (e) { /* not ready */ }
+  }
+  window.addEventListener('message', (ev) => {
+    const m = ev.data;
+    if (m && m.type === 'osw-alerts' && ev.source === $('frame').contentWindow && Array.isArray(m.kinds)) {
+      alertKinds = m.kinds;
+      renderFields();
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -814,35 +846,123 @@
   const cur = (k, d) => (look[k] !== undefined ? look[k] : d);
   const pickAxis = (k) => (name) => set(k, name);
 
-  // One-click color themes. A theme sets colors and text only; shape, skin
-  // and effects stay as they are. "Library default" clears them all.
+  // ---------------------------------------------------------------------------
+  // [THEME] One-click color themes. A theme sets colors only (accent, second
+  // accent, alert, text, fill, frame, texture tint); shape, skin, font and
+  // effect stay as they are. "Library default" clears them all.
+  //
+  // T(label, note, accent, accent2, options) builds one. Options:
+  //   alert, text, dim (second line), fill, tex (texture tint)
+  //   grad: true  -> the frame is a gradient from accent to accent2, so both
+  //                  colors show on any skin (the "combo" look)
+  //   frame: "..." -> any frame paint (e.g. a metallic gradient)
+  // To add a theme: one line in the group it belongs to.
+  // ---------------------------------------------------------------------------
   const SILVER_FRAME = 'linear-gradient(180deg, #f3f4f6, #a4a9b0 50%, #5f646b)';
-  const THEMES = {
-    streamworks: { label: 'Streamworks', note: 'red · black · silver',
-      swatch: ['#e0121d', '#0a0a0b', '#c4c8ce'],
-      keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
-              fill: 'rgba(8, 8, 9, 0.92)', frameColor: SILVER_FRAME, textureColor: 'rgba(255, 255, 255, 0.06)' } },
-    'streamworks-red': { label: 'Streamworks red frame', note: 'red frame, silver details',
-      swatch: ['#e0121d', '#0a0a0b', '#e0121d'],
-      keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
-              fill: 'rgba(8, 8, 9, 0.92)', textureColor: 'rgba(255, 255, 255, 0.06)' } },
-    none: { label: 'Library default', note: 'clear all colors', swatch: ['#c81e2c', '#0a0a0a', '#f2f2f2'], keys: {} }
+  const GOLD_FRAME = 'linear-gradient(180deg, #fff1c1, #e3b341 50%, #8a6516)';
+  const ROSE_FRAME = 'linear-gradient(180deg, #ffe3dc, #e0a092 50%, #9a5d52)';
+  function T(label, note, a, b, o = {}) {
+    const keys = { accent: a, accent2: b, alert: o.alert || '#ffb300', text: o.text || '#f3f4f6',
+      textDim: o.dim || '#c3c6ce', fill: o.fill || 'rgba(10, 10, 14, 0.92)', textureColor: o.tex || 'rgba(255, 255, 255, 0.06)' };
+    if (o.grad) keys.frameColor = `linear-gradient(90deg, ${a}, ${b})`;
+    if (o.frame) keys.frameColor = o.frame;
+    return { label, note, keys };
+  }
+  const THEME_GROUPS = {
+    'Streamworks': {
+      streamworks: { label: 'Streamworks', note: 'red · black · silver',
+        keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
+                fill: 'rgba(8, 8, 9, 0.92)', frameColor: SILVER_FRAME, textureColor: 'rgba(255, 255, 255, 0.06)' } },
+      'streamworks-red': { label: 'Streamworks red frame', note: 'red frame, silver details',
+        keys: { accent: '#e0121d', accent2: '#c4c8ce', alert: '#ff2b36', text: '#f3f4f6', textDim: '#bcc0c6',
+                fill: 'rgba(8, 8, 9, 0.92)', textureColor: 'rgba(255, 255, 255, 0.06)' } },
+    },
+    'Popular combos': {
+      'neon-twilight':  T('Neon Twilight', 'blue · purple', '#3b82f6', '#a855f7', { grad: true, fill: 'rgba(11, 10, 30, 0.92)', dim: '#c7c9f5', alert: '#f472b6' }),
+      'electric-violet': T('Electric Violet', 'indigo · magenta', '#6366f1', '#d946ef', { grad: true, fill: 'rgba(14, 8, 28, 0.92)', dim: '#d4c8fb', alert: '#22d3ee' }),
+      galaxy:           T('Galaxy', 'violet · pink', '#7c5cff', '#ff5ce1', { grad: true, fill: 'rgba(12, 8, 30, 0.92)', dim: '#d9cfff', alert: '#ffd23f' }),
+      synthwave:        T('Synthwave', 'pink · cyan', '#ff2fd2', '#00e5ff', { grad: true, fill: 'rgba(20, 6, 38, 0.92)', dim: '#f3c6ff', alert: '#ffe14d' }),
+      vaporwave:        T('Vaporwave', 'pink · blue · lilac', '#ff71ce', '#01cdfe', { grad: true, fill: 'rgba(30, 14, 48, 0.9)', dim: '#e6c9ff', alert: '#b967ff' }),
+      cyberpunk:        T('Cyberpunk', 'yellow · cyan', '#fcee0a', '#00f0ff', { grad: true, fill: 'rgba(8, 10, 16, 0.94)', dim: '#c9d3df', alert: '#ff2a6d' }),
+      miami:            T('Miami Nights', 'hot pink · teal', '#ff4fa3', '#19d3c5', { grad: true, fill: 'rgba(14, 10, 26, 0.92)', dim: '#f5c6dd', alert: '#ffd23f' }),
+      aurora:           T('Aurora', 'teal · purple', '#2dd4bf', '#8b5cf6', { grad: true, fill: 'rgba(6, 16, 24, 0.92)', dim: '#c3ece6', alert: '#f472b6' }),
+      ocean:            T('Deep Ocean', 'cyan · blue', '#22d3ee', '#2563eb', { grad: true, fill: 'rgba(4, 14, 28, 0.92)', dim: '#b9e6f2', alert: '#fbbf24' }),
+      sunset:           T('Sunset', 'orange · pink', '#ff7a18', '#ff3d77', { grad: true, fill: 'rgba(24, 10, 14, 0.92)', dim: '#ffd2c2', alert: '#ffd23f' }),
+      inferno:          T('Inferno', 'red · orange', '#ff3b1f', '#ffae00', { grad: true, fill: 'rgba(20, 8, 6, 0.92)', dim: '#ffd0b5', alert: '#fff06a' }),
+      frostbite:        T('Frostbite', 'ice · blue', '#a5f3fc', '#60a5fa', { grad: true, fill: 'rgba(8, 16, 26, 0.92)', text: '#f0f9ff', dim: '#bae6fd', alert: '#f472b6' }),
+      toxic:            T('Toxic', 'lime · green', '#a3ff12', '#22c55e', { grad: true, fill: 'rgba(8, 14, 6, 0.93)', dim: '#d4f5b8', alert: '#ff3df0' }),
+      'peach-plum':     T('Peach & Plum', 'peach · plum', '#ffb38a', '#9d4edd', { grad: true, fill: 'rgba(22, 12, 26, 0.92)', dim: '#f3d3c4', alert: '#ffd23f' }),
+    },
+    'Classic': {
+      royal:            T('Royal', 'purple · gold', '#7e22ce', '#fbbf24', { frame: '#fbbf24', fill: 'rgba(16, 8, 26, 0.93)', dim: '#e5d4f5', alert: '#fbbf24' }),
+      'black-gold':     T('Black & Gold', 'gold · black', '#e3b341', '#fff1c1', { frame: GOLD_FRAME, fill: 'rgba(10, 9, 6, 0.93)', text: '#fff8e7', dim: '#e8d9b0', alert: '#ffd75e' }),
+      'rose-gold':      T('Rose Gold', 'rose · blush', '#e8a598', '#f6d6cf', { frame: ROSE_FRAME, fill: 'rgba(22, 14, 16, 0.92)', text: '#fff1ee', dim: '#efcfc8', alert: '#ffb3c1' }),
+      'midnight-silver': T('Midnight Silver', 'navy · silver', '#94a3b8', '#e2e8f0', { frame: SILVER_FRAME, fill: 'rgba(8, 12, 24, 0.93)', dim: '#cbd5e1', alert: '#60a5fa' }),
+      emerald:          T('Emerald', 'green · mint', '#10b981', '#a7f3d0', { fill: 'rgba(4, 18, 14, 0.92)', dim: '#bfeedd', alert: '#fbbf24' }),
+      crimson:          T('Crimson', 'red · rose', '#dc143c', '#ff8fa3', { fill: 'rgba(16, 6, 9, 0.93)', dim: '#f5c4cc', alert: '#ffd23f' }),
+      'blood-moon':     T('Blood Moon', 'dark red · ember', '#b91c1c', '#f97316', { fill: 'rgba(18, 4, 4, 0.94)', dim: '#f3c3b0', alert: '#fde047' }),
+      lavender:         T('Lavender', 'lilac · orchid', '#c4b5fd', '#f5d0fe', { fill: 'rgba(20, 16, 32, 0.9)', dim: '#ddd3fb', alert: '#f9a8d4' }),
+      matrix:           T('Matrix', 'code green', '#00ff41', '#008f11', { fill: 'rgba(0, 8, 2, 0.94)', text: '#d1ffd8', dim: '#5dff8a', alert: '#eaff00', tex: 'rgba(0, 255, 65, 0.07)' }),
+      monochrome:       T('Monochrome', 'white · grey', '#f5f5f5', '#9ca3af', { frame: '#f5f5f5', fill: 'rgba(10, 10, 10, 0.92)', dim: '#b8b8b8', alert: '#facc15' }),
+      mocha:            T('Mocha', 'coffee · cream', '#c08552', '#f3e9dc', { fill: 'rgba(28, 18, 12, 0.93)', text: '#f3e9dc', dim: '#d6c2ad', alert: '#ffb45e' }),
+      forest:           T('Forest', 'green · bark', '#4ade80', '#a16207', { fill: 'rgba(8, 18, 10, 0.92)', dim: '#c7e8cf', alert: '#fbbf24' }),
+    },
+    'Platforms': {
+      twitch:           T('Twitch', 'purple', '#9146ff', '#bf94ff', { fill: 'rgba(24, 24, 27, 0.94)', dim: '#d6c6ff', alert: '#ffca5f' }),
+      youtube:          T('YouTube', 'red · white', '#ff0000', '#ffffff', { fill: 'rgba(15, 15, 15, 0.94)', dim: '#d0d0d0', alert: '#ffd400' }),
+      kick:             T('Kick', 'green · white', '#53fc18', '#ffffff', { fill: 'rgba(11, 14, 15, 0.94)', dim: '#c9d6cc', alert: '#ffd400' }),
+      discord:          T('Discord', 'blurple · pink', '#5865f2', '#eb459e', { grad: true, fill: 'rgba(30, 31, 34, 0.94)', dim: '#c9cdfb', alert: '#fee75c' }),
+      tiktok:           T('TikTok', 'cyan · red', '#25f4ee', '#fe2c55', { grad: true, fill: 'rgba(0, 0, 0, 0.92)', dim: '#c7d2d2', alert: '#fee75c' }),
+    },
+    'Seasonal': {
+      halloween:        T('Halloween', 'orange · purple', '#ff7518', '#8b2fc9', { grad: true, fill: 'rgba(16, 8, 18, 0.93)', dim: '#f5cba8', alert: '#a3ff12' }),
+      holiday:          T('Holiday', 'red · green', '#d42426', '#1f8a4c', { grad: true, fill: 'rgba(10, 14, 12, 0.93)', dim: '#e6d6c0', alert: '#f8b229' }),
+      valentine:        T('Valentine', 'pink · blush', '#ff4d6d', '#ffb3c1', { fill: 'rgba(24, 8, 14, 0.92)', dim: '#ffccd6', alert: '#ffd23f' }),
+      spring:           T('Spring', 'mint · pink', '#6ee7b7', '#f9a8d4', { grad: true, fill: 'rgba(12, 20, 20, 0.9)', dim: '#d6efe6', alert: '#fde047' }),
+    },
+    'Light': {
+      'clean-light':    T('Clean Light', 'white · blue · purple', '#2563eb', '#7c3aed', { grad: true, fill: 'rgba(250, 250, 252, 0.95)', text: '#111827', dim: '#4b5563', alert: '#db2777', tex: 'rgba(0, 0, 0, 0.05)' }),
+      paper:            T('Paper', 'cream · amber', '#b45309', '#1c1917', { fill: 'rgba(250, 246, 238, 0.96)', text: '#1c1917', dim: '#57534e', alert: '#dc2626', tex: 'rgba(0, 0, 0, 0.05)' }),
+      'pastel-pop':     T('Pastel Pop', 'pink · sky', '#f472b6', '#60a5fa', { grad: true, fill: 'rgba(255, 255, 255, 0.94)', text: '#1f2937', dim: '#6b7280', alert: '#8b5cf6', tex: 'rgba(0, 0, 0, 0.05)' }),
+      'light-red':      T('Streamworks Light', 'white · red · silver', '#e0121d', '#6b7280', { frame: SILVER_FRAME, fill: 'rgba(248, 248, 249, 0.95)', text: '#111111', dim: '#4b5563', alert: '#e0121d', tex: 'rgba(0, 0, 0, 0.05)' }),
+    },
   };
-  const THEME_ALL_KEYS = THEME_KEYS.concat(['frameColor']);
-  function themeRow() {
-    const wrap = el('<div><p class="sub-head">Color themes</p><div class="themes"></div><p class="hint">Sets colors and text only. Shape, skin and effect stay.</p></div>');
-    const row = wrap.querySelector('.themes');
-    Object.entries(THEMES).forEach(([id, t]) => {
-      const b = el(`<button type="button" class="theme"><span class="dots">${t.swatch.map(c => `<i style="background:${c}"></i>`).join('')}</span>
-        <span class="t-name">${t.label}</span><span class="t-note">${t.note}</span></button>`);
-      b.addEventListener('click', () => {
-        THEME_ALL_KEYS.forEach(k => delete look[k]);
-        Object.assign(look, clone(t.keys));
-        changed(); renderFields();
-        status(`${t.label} colors applied. Save to keep them.`);
-      });
-      row.appendChild(b);
+  // A theme owns exactly these keys: clicking one replaces them and leaves
+  // the font, text size, outline and shadow alone.
+  const THEME_COLOR_KEYS = ['accent', 'accent2', 'alert', 'text', 'textDim', 'fill', 'frameColor', 'textureColor'];
+  const THEME_ALL_KEYS = THEME_COLOR_KEYS;
+  const themeIsOn = (t) => THEME_ALL_KEYS.every(k => (t.keys[k] === undefined ? look[k] === undefined : look[k] === t.keys[k]));
+
+  function themeButton(t) {
+    const k = t.keys;
+    const frame = k.frameColor || k.accent || '#c81e2c', fill = k.fill || 'rgba(10,10,10,.92)';
+    const b = el(`<button type="button" class="theme" title="${escapeHtml(t.label + ' · ' + t.note)}">
+      <span class="tp" style="background:${frame}"><b style="background:linear-gradient(${fill}, ${fill}), #0b0b0c;color:${k.text || '#f2f2f2'}">Aa<i style="background:${k.accent2 || k.accent || '#c81e2c'}"></i><u style="background:${k.accent || '#c81e2c'}"></u></b></span>
+      <span class="t-name">${escapeHtml(t.label)}</span><span class="t-note">${escapeHtml(t.note)}</span></button>`);
+    b.addEventListener('click', () => {
+      THEME_ALL_KEYS.forEach(key => delete look[key]);
+      Object.assign(look, clone(t.keys));
+      changed(); renderFields(); markThemes();
+      status(`${t.label} colors applied. Save to keep them.`);
     });
+    b._theme = t;
+    return b;
+  }
+  const themeButtons = [];
+  function markThemes() { themeButtons.forEach(b => b.classList.toggle('on', themeIsOn(b._theme))); }
+
+  function themeRow() {
+    const total = Object.values(THEME_GROUPS).reduce((n, g) => n + Object.keys(g).length, 0);
+    const wrap = el(`<section class="fsec"><h3 class="fsec-h">Color themes <small>${total} themes · sets colors only</small></h3><div class="themes"></div></section>`);
+    const grid = wrap.querySelector('.themes');
+    Object.entries(THEME_GROUPS).forEach(([group, themes]) => {
+      grid.appendChild(el(`<div class="group-label">${escapeHtml(group)}</div>`));
+      Object.values(themes).forEach(t => { const b = themeButton(t); themeButtons.push(b); grid.appendChild(b); });
+    });
+    grid.appendChild(el('<div class="group-label">Reset</div>'));
+    const none = themeButton({ label: 'Library default', note: 'clear all colors', keys: {} });
+    grid.appendChild(none);
+    markThemes();
     return wrap;
   }
 
@@ -869,6 +989,7 @@
     pane.appendChild(swatchGrid(P.SHAPES, {
       cfg: (n) => ({ shape: n, skin: cur('skin', 'solid'), texture: 'hex-grid' }),
       isOn: (n) => cur('shape', 'chamfer-right') === n, pick: pickAxis('shape') }));
+    pane.appendChild(fieldsBox('shape'));     // [THEME] frame width, slant size, corner radius moved here
   });
   tab('skin', 'Skin', (pane) => {
     pane.appendChild(swatchGrid(P.SKINS, {
@@ -883,15 +1004,23 @@
       pick: (n) => { set('texture', n === 'none' ? null : n); delete look.textureColors; renderFields(); changed(); } }));
     pane.appendChild(fieldsBox('texture'));
   });
-  tab('colors', 'Colors', (pane) => { pane.appendChild(themeRow()); pane.appendChild(fieldsBox('colors')); });
+  // [THEME] Was "Colors". The id stays 'colors' so a remembered tab still opens.
+  tab('colors', 'Theme', (pane) => { pane.appendChild(themeRow()); pane.appendChild(fieldsBox('colors')); });
   tab('effect', 'Effect', (pane) => {
-    pane.appendChild(swatchGrid(['none'].concat(Object.keys(P.EFFECTS)), {
+    // [ALERTS] Effects are the ambient animation on the normal display.
+    // Confetti, coins, gems and images are alert celebrations now (Alerts
+    // tab). A saved look that still uses one as its effect keeps working.
+    const ambient = P.AMBIENT_EFFECTS || Object.keys(P.EFFECTS);
+    const list = ['none'].concat(ambient);
+    if (look.effect && !list.includes(look.effect)) list.push(look.effect);
+    pane.appendChild(swatchGrid(list, {
       cfg: (n) => ({ shape: cur('shape', 'chamfer-right'), skin: cur('skin', 'solid'), effect: n === 'none' ? 'none' : n,
         effectOptions: n === 'embers' ? { spill: 0, rate: 8, from: 'inside' } : undefined }),
       isOn: (n) => cur('effect', 'none') === n,
       pick: (n) => { set('effect', n === 'none' ? null : n); delete look.effectOptions; renderFields(); changed(); } }));
     pane.appendChild(fieldsBox('effect'));
   });
+  tab('alerts', 'Alerts', (pane) => { pane.appendChild(fieldsBox('alerts')); });
   tab('icon', 'Icon', (pane) => {
     pane.appendChild(swatchGrid(P.ICON_SHAPES, {
       cfg: (n) => ({ shape: cur('shape', 'chamfer-right'), skin: cur('skin', 'solid'), iconShape: n }),
@@ -944,6 +1073,9 @@
   const probeCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
   function hexOf(css, fallback) {
     if (!css) return fallback;
+    // A gradient (e.g. a theme's two-color frame) isn't one color: show its
+    // first color in the picker. The text box still shows the whole value.
+    if (/gradient\(/i.test(css)) { const m = String(css).match(/#[0-9a-f]{6}\b/i); return m ? m[0] : fallback; }
     if (/^#[0-9a-f]{6}$/i.test(css)) return css;
     const s = document.createElement('span');
     s.style.color = css;
@@ -990,8 +1122,333 @@
     box.appendChild(f);
   }
 
+  // ---------------------------------------------------------------------------
+  // [FONTS] Font dropdown. Three groups:
+  //   - Installed on this PC: filled in only after "Show my installed fonts"
+  //     (the browser asks permission first; see loadInstalledFonts)
+  //   - Windows fonts: safe picks every Windows PC has
+  //   - Google Fonts: loaded from fonts.google.com by the overlay, so they work
+  //     on any PC. Picking one sets fontIsGoogle automatically.
+  // "Other…" reveals a text box for any font name not in the lists.
+  // ---------------------------------------------------------------------------
+  const WINDOWS_FONTS = ['Segoe UI', 'Segoe UI Semibold', 'Segoe UI Black', 'Bahnschrift', 'Arial', 'Arial Black',
+    'Calibri', 'Cambria', 'Candara', 'Consolas', 'Constantia', 'Corbel', 'Franklin Gothic Medium', 'Gadugi',
+    'Georgia', 'Impact', 'Lucida Console', 'Palatino Linotype', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'];
+  const GOOGLE_FONTS = {
+    'Gaming & tech': ['Orbitron', 'Rajdhani', 'Audiowide', 'Russo One', 'Exo 2', 'Chakra Petch', 'Saira',
+      'Saira Condensed', 'Teko', 'Black Ops One', 'Michroma', 'Oxanium', 'Aldrich', 'Electrolize', 'Quantico',
+      'Share Tech', 'Graduate'],
+    'Bold & condensed': ['Bebas Neue', 'Oswald', 'Anton', 'Barlow', 'Barlow Semi Condensed', 'Barlow Condensed',
+      'Roboto Condensed', 'Archivo Black', 'Kanit', 'Fjalla One', 'League Spartan', 'Big Shoulders Display'],
+    'Clean': ['Montserrat', 'Poppins', 'Inter', 'Roboto', 'Open Sans', 'Lato', 'Nunito', 'Raleway',
+      'Source Sans 3', 'Titillium Web', 'Ubuntu', 'Fira Sans', 'Work Sans', 'Outfit', 'Manrope'],
+    'Fun & display': ['Bangers', 'Luckiest Guy', 'Bungee', 'Righteous', 'Lilita One', 'Fredoka',
+      'Permanent Marker', 'Press Start 2P', 'Silkscreen', 'VT323', 'Creepster', 'Monoton'],
+    'Monospace': ['JetBrains Mono', 'Share Tech Mono', 'Space Mono', 'Roboto Mono', 'Fira Code'],
+  };
+  const GOOGLE_SET = new Set([].concat(...Object.values(GOOGLE_FONTS)));
+  let installedFonts = null;          // filled by loadInstalledFonts(); null = not asked yet
+
+  // The Local Font Access API: Chrome/Edge can list the fonts on this PC, but
+  // only after the user agrees to a permission prompt, and only in response to
+  // a click. Other browsers don't have it, so the button is hidden there.
+  async function loadInstalledFonts() {
+    try {
+      const fonts = await window.queryLocalFonts();
+      installedFonts = [...new Set(fonts.map(f => f.family))].sort((a, b) => a.localeCompare(b));
+      if (!installedFonts.length) toast('No fonts were shared');
+    } catch (e) {
+      installedFonts = [];
+      status('The browser didn’t share the font list (permission declined or not supported). The Windows and Google lists still work.', 'warn');
+    }
+    renderFields();
+  }
+
+  function fontField(box) {
+    const cur = look.font || '';
+    const isGoogle = !!look.fontIsGoogle;
+    const inLists = !cur || (isGoogle ? GOOGLE_SET.has(cur) : (WINDOWS_FONTS.includes(cur) || (installedFonts || []).includes(cur)));
+    const opt = (v, label, google) => {
+      const val = (google ? 'g:' : 's:') + v;
+      const on = cur === v && isGoogle === !!google;
+      return `<option value="${escapeHtml(val)}"${on ? ' selected' : ''}>${escapeHtml(label || v)}</option>`;
+    };
+    let html = `<option value=""${!cur ? ' selected' : ''}>Default (Segoe UI)</option>`;
+    // A font set some other way (typed in, or from an older save) stays selectable.
+    if (cur && !inLists) html += `<optgroup label="Current">${opt(cur, cur + (isGoogle ? ' (Google)' : ''), isGoogle)}</optgroup>`;
+    if (installedFonts && installedFonts.length)
+      html += `<optgroup label="Installed on this PC">${installedFonts.map(f => opt(f)).join('')}</optgroup>`;
+    html += `<optgroup label="Windows fonts">${WINDOWS_FONTS.map(f => opt(f)).join('')}</optgroup>`;
+    Object.keys(GOOGLE_FONTS).forEach(g => {
+      html += `<optgroup label="Google Fonts · ${g}">${GOOGLE_FONTS[g].map(f => opt(f, f, true)).join('')}</optgroup>`;
+    });
+    html += `<option value="other">Other… (type a name)</option>`;
+
+    const canList = typeof window.queryLocalFonts === 'function' && installedFonts === null;
+    const ff = el(`<div class="f full"><span>Font${cur ? '<button type="button" class="reset">Default</button>' : ''}</span>
+      <div class="pair"><select aria-label="Font family" style="flex:1;min-width:0">${html}</select>
+      ${canList ? '<button type="button" data-list style="white-space:nowrap">Show my installed fonts</button>' : ''}</div>
+      <div class="pair" data-other hidden style="margin-top:6px">
+        <input type="text" value="${escapeHtml(cur)}" placeholder="Font name, e.g. Rajdhani" aria-label="Font name" style="flex:1;min-width:0">
+        <label class="toggle" style="white-space:nowrap"><input type="checkbox"${isGoogle ? ' checked' : ''}> Google Font</label></div>
+      <p class="hint">Google Fonts load from fonts.google.com, so they look the same on any PC. A font installed only on this PC shows only on this PC.</p></div>`);
+    const sel = ff.querySelector('select');
+    const other = ff.querySelector('[data-other]');
+    const [ot, og] = other.querySelectorAll('input');
+    sel.addEventListener('change', () => {
+      const v = sel.value;
+      if (v === 'other') { other.hidden = false; ot.focus(); return; }
+      other.hidden = true;
+      if (!v) { delete look.font; delete look.fontIsGoogle; changed(); renderFields(); return; }
+      look.font = v.slice(2);
+      if (v.startsWith('g:')) look.fontIsGoogle = true; else delete look.fontIsGoogle;
+      changed(); renderFields();
+    });
+    const applyOther = () => {
+      const name = ot.value.trim();
+      if (!name) return;
+      look.font = name;
+      if (og.checked) look.fontIsGoogle = true; else delete look.fontIsGoogle;
+      changed(); renderFields();
+    };
+    ot.addEventListener('change', applyOther);
+    og.addEventListener('change', applyOther);
+    const lb = ff.querySelector('[data-list]'); if (lb) lb.addEventListener('click', loadInstalledFonts);
+    const r = ff.querySelector('.reset'); if (r) r.addEventListener('click', () => { delete look.font; delete look.fontIsGoogle; changed(); renderFields(); });
+    box.appendChild(ff);
+  }
+
+  // ---------------------------------------------------------------------------
+  // [TEXCOLORS] Pattern texture colors. Each multi-color pattern has a few
+  // color "slots" (P.PATTERNS[name] lists its original colors, one per slot).
+  // "Custom" gives one color box per slot, saved as textureColors. The library
+  // writes them to --osw-pat-1 … --osw-pat-5 on the panel.
+  // ---------------------------------------------------------------------------
+  function patternColorFields(box, t) {
+    const originals = P.PATTERNS[t];
+    const custom = Array.isArray(look.textureColors) && look.textureColors.length;
+    const mode = custom ? 'custom' : (look.texturePalette || 'original');
+    const f = el(`<label class="f"><span>Pattern colors</span><select>
+      ${[['original', 'Original'], ['accent', 'From accent'], ['mono', 'Dark mono'], ['custom', 'Custom…']]
+        .map(([v, l]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`);
+    const s = f.querySelector('select');
+    s.addEventListener('change', () => {
+      if (s.value === 'custom') {
+        // Start from what's on screen now: the pattern's own colors.
+        look.textureColors = (look.textureColors && look.textureColors.length ? look.textureColors : originals).slice();
+        delete look.texturePalette;
+      } else {
+        delete look.textureColors;
+        set('texturePalette', s.value === 'original' ? null : s.value);
+      }
+      changed(); renderFields();
+    });
+    box.appendChild(f);
+    if (!custom) return;
+    const row = el(`<div class="f full"><span>Colors <button type="button" class="reset">Original colors</button></span>
+      <div class="pair" style="flex-wrap:wrap">${originals.map((c, i) =>
+        `<input type="color" value="${hexOf(look.textureColors[i], c)}" aria-label="Pattern color ${i + 1}" title="Color ${i + 1}">`).join('')}</div></div>`);
+    row.querySelectorAll('input[type=color]').forEach((inp, i) => {
+      inp.addEventListener('input', () => {
+        const list = originals.map((c, j) => look.textureColors[j] || c);
+        list[i] = inp.value;
+        look.textureColors = list;
+        changed();
+      });
+    });
+    row.querySelector('.reset').addEventListener('click', () => { look.textureColors = originals.slice(); changed(); renderFields(); });
+    box.appendChild(row);
+  }
+
+  // [FONTSIZE] Text size as a percentage (saved as fontScale: 1 = 100%).
+  function textSizeField(box) {
+    const set_ = look.fontScale !== undefined;
+    const v = set_ ? Number(look.fontScale) : 1;
+    const f = el(`<label class="f"><span>Text size ${set_ ? '<button type="button" class="reset">Default</button>' : ''}<output>${Math.round(v * 100)}%</output></span>
+      <input type="range" min="0.5" max="2" step="0.05" value="${v}" aria-label="Text size"></label>`);
+    const r = f.querySelector('input'), o = f.querySelector('output');
+    r.addEventListener('input', () => { look.fontScale = Number(r.value); o.textContent = Math.round(r.value * 100) + '%'; changed(); });
+    r.addEventListener('change', () => { if (Number(r.value) === 1) set('fontScale', null); renderFields(); });
+    const rb = f.querySelector('.reset'); if (rb) rb.addEventListener('click', (e) => { e.preventDefault(); set('fontScale', null); renderFields(); });
+    box.appendChild(f);
+  }
+
+  // ---------------------------------------------------------------------------
+  // [ALERTS] Alerts tab.
+  // look.alerts holds partial styles at three levels (see OSWPanels.resolveAlert):
+  //   "default" (all alerts)  <  "<kind>"  <  "<kind>.<platform>"
+  // Each entry stores only what it changes; everything else is inherited.
+  // ---------------------------------------------------------------------------
+  let alertSel = 'default';
+  const PF_LABEL = { twitch: 'Twitch', youtube: 'YouTube', kick: 'Kick' };
+  const alertEntry = (key) => (look.alerts && look.alerts[key]) || null;
+  function setAlertField(key, field, value) {
+    const all = look.alerts ? clone(look.alerts) : {};
+    const e = all[key] || {};
+    if (value === null || value === undefined || value === '') delete e[field]; else e[field] = value;
+    if (Object.keys(e).length) all[key] = e; else delete all[key];
+    if (Object.keys(all).length) look.alerts = all; else delete look.alerts;
+    changed();
+  }
+  function alertLabel(key) {
+    if (key === 'default') return 'All alerts';
+    const [kind, pf] = key.split('.');
+    const k = (alertKinds || []).find(x => x.id === kind);
+    return (k ? k.label : kind) + (pf ? ' · ' + (PF_LABEL[pf] || pf) : '');
+  }
+  // What this entry would get from the levels above it (its own entry removed).
+  function inheritedFor(key) {
+    const [kind, pf] = key === 'default' ? ['', ''] : key.split('.');
+    const others = look.alerts ? clone(look.alerts) : {};
+    delete others[key];
+    return P.resolveAlert(others, kind, pf);
+  }
+  function inheritsFrom(key) {
+    if (key === 'default') return 'library defaults';
+    const [kind, pf] = key.split('.');
+    if (pf && alertEntry(kind)) return alertLabel(kind);
+    return alertEntry('default') ? 'All alerts' : 'library defaults';
+  }
+
+  function buildAlerts(outer) {
+    if (!P.resolveAlert) { outer.appendChild(el('<p class="hint">This picker needs panel library 1.8 or newer for alert styles.</p>')); return; }
+    if (alertKinds && !alertKinds.length) { outer.appendChild(el('<p class="hint">This widget doesn’t have alerts.</p>')); return; }
+    const kinds = alertKinds || [];
+    if (!kinds.length) outer.appendChild(el(`<p class="hint">${current ? 'Asking the widget which alerts it has…' : 'Open a widget to set its alerts.'} You can still set the style for all alerts.</p>`));
+    if (alertSel !== 'default' && !kinds.some(k => alertSel.split('.')[0] === k.id)) alertSel = 'default';
+
+    // ---- the list ----
+    const listBox = section(outer, 'Alerts', 'pick one to style it');
+    const list = el('<div class="alist full"></div>');
+    listBox.appendChild(list);
+    const entryBtn = (key, cls, text, badge) => {
+      const b = el(`<button type="button" class="${cls}${alertSel === key ? ' sel' : ''}${alertEntry(key) ? ' custom' : ''}">${escapeHtml(text)}${badge && alertEntry(key) ? '<span class="badge">custom</span>' : ''}</button>`);
+      b.addEventListener('click', () => { alertSel = key; renderFields(); });
+      return b;
+    };
+    const top = el('<div class="arow"></div>');
+    top.appendChild(entryBtn('default', 'kind', 'All alerts (the default)', true));
+    list.appendChild(top);
+    kinds.forEach(k => {
+      const row = el('<div class="arow"></div>');
+      row.appendChild(entryBtn(k.id, 'kind', k.label, true));
+      (k.platforms || []).forEach(pf => row.appendChild(entryBtn(k.id + '.' + pf, 'pf', PF_LABEL[pf] || pf)));
+      list.appendChild(row);
+    });
+
+    // ---- the editor ----
+    const key = alertSel;
+    const own = alertEntry(key) || {};
+    const inh = inheritedFor(key);
+    const eff = Object.assign({}, inh, own);
+    const [kindId, pfId] = key === 'default' ? ['', ''] : key.split('.');
+    const kindInfo = kinds.find(k => k.id === kindId);
+    const box = section(outer, alertLabel(key), key === 'default' ? 'every alert starts from this' : 'unset fields follow ' + inheritsFrom(key));
+    const fromTag = (field) => own[field] !== undefined
+      ? '<button type="button" class="reset" data-reset="' + field + '">Inherit</button>'
+      : '<span class="from">inherited</span>';
+    const wireReset = (f) => f.querySelectorAll('[data-reset]').forEach(r => r.addEventListener('click', (e) => { e.preventDefault(); setAlertField(key, r.dataset.reset, null); renderFields(); }));
+
+    // Color
+    const colorMode = eff.color === 'platform' || eff.color === 'theme' ? eff.color : 'custom';
+    const fc = el(`<div class="f"><span>Alert color ${fromTag('color')}</span><div class="pair">
+      <select aria-label="Alert color" style="flex:1;min-width:0">
+        <option value="platform"${colorMode === 'platform' ? ' selected' : ''}>Platform color</option>
+        <option value="theme"${colorMode === 'theme' ? ' selected' : ''}>Theme alert color</option>
+        <option value="custom"${colorMode === 'custom' ? ' selected' : ''}>Custom…</option></select>
+      ${colorMode === 'custom' ? `<input type="color" value="${hexOf(eff.color, '#ffb300')}" aria-label="Custom alert color">` : ''}</div>
+      <p class="hint">${colorMode === 'platform' ? 'Twitch purple, YouTube red, Kick green.' : colorMode === 'theme' ? 'The Alert color on the Theme tab.' : 'The same color on every platform.'}</p></div>`);
+    fc.querySelector('select').addEventListener('change', (e) => {
+      const v = e.target.value;
+      setAlertField(key, 'color', v === 'custom' ? hexOf(own.color && own.color.startsWith('#') ? own.color : '', '#ffb300') : v);
+      renderFields();
+    });
+    const cpick = fc.querySelector('input[type=color]');
+    if (cpick) { cpick.addEventListener('input', () => setAlertField(key, 'color', cpick.value)); cpick.addEventListener('change', () => renderFields()); }
+    box.appendChild(fc);
+
+    // Headline
+    const fh = el(`<label class="f"><span>Headline ${fromTag('headline')}</span>
+      <input type="text" value="${escapeHtml(own.headline || '')}" placeholder="${escapeHtml(inh.headline || (kindInfo ? kindInfo.example : 'Each alert’s own (New Follower!…)'))}" aria-label="Headline"></label>`);
+    fh.querySelector('input').addEventListener('change', (e) => { setAlertField(key, 'headline', e.target.value.trim() || null); renderFields(); });
+    box.appendChild(fh);
+
+    // Celebrations
+    const bursts = eff.bursts || [];
+    const fb = el(`<div class="f full"><span>Celebration ${fromTag('bursts')}</span><div class="chips"></div>
+      <p class="hint">Pick any mix; they play together. None = the panel just recolors${eff.flare !== false ? ' and its effect flares' : ''}.</p></div>`);
+    const chips = fb.querySelector('.chips');
+    (P.ALERT_BURSTS || []).forEach(bu => {
+      const on = bursts.includes(bu.id);
+      const c = el(`<button type="button" class="chip" aria-pressed="${on}" title="${escapeHtml(bu.note)}">${escapeHtml(bu.label)}</button>`);
+      c.addEventListener('click', () => {
+        const next = on ? bursts.filter(x => x !== bu.id) : bursts.concat(bu.id);
+        setAlertField(key, 'bursts', next);
+        renderFields();
+      });
+      chips.appendChild(c);
+    });
+    box.appendChild(fb);
+
+    // Images (only when the images burst is on)
+    if (bursts.includes('images')) {
+      const fi = el(`<label class="f full"><span>Image URLs ${fromTag('images')}</span>
+        <input type="text" value="${escapeHtml(own.images || '')}" placeholder="${escapeHtml(inh.images || 'https://…/emote.png, https://…/logo.png')}" aria-label="Image URLs">
+        <span class="hint">One or more image links, separated by commas (emotes, your logo).</span></label>`);
+      fi.querySelector('input').addEventListener('change', (e) => { setAlertField(key, 'images', e.target.value.trim() || null); renderFields(); });
+      box.appendChild(fi);
+    }
+
+    // Intensity + duration
+    const range = (field, label, min, max, step, fmt) => {
+      const v = eff[field];
+      const f = el(`<label class="f"><span>${label} ${fromTag(field)}<output>${fmt(v)}</output></span>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${v}" aria-label="${label}"></label>`);
+      const r = f.querySelector('input'), o = f.querySelector('output');
+      r.addEventListener('input', () => { o.textContent = fmt(Number(r.value)); });
+      r.addEventListener('change', () => { setAlertField(key, field, Number(r.value)); renderFields(); });
+      wireReset(f);
+      box.appendChild(f);
+    };
+    range('intensity', 'Intensity', 0.5, 2, 0.1, v => Math.round(v * 100) + '%');
+    range('duration', 'Duration', 2, 15, 0.5, v => v + 's');
+
+    // Effect flare
+    const ff = el(`<label class="f full"><span>Effect flare ${fromTag('flare')}</span>
+      <span class="toggle"><input type="checkbox"${eff.flare !== false ? ' checked' : ''}> Make the panel’s effect flare too (shine sweeps, embers burst…)</span></label>`);
+    ff.querySelector('input').addEventListener('change', (e) => { setAlertField(key, 'flare', e.target.checked); renderFields(); });
+    box.appendChild(ff);
+
+    // Actions
+    const act = el(`<div class="f full"><div class="row">
+      <button type="button" class="primary" data-test>Test ${escapeHtml(alertLabel(key))}</button>
+      ${alertEntry(key) ? `<button type="button" data-clear>${key === 'default' ? 'Reset all-alerts style' : 'Clear this style (inherit everything)'}</button>` : ''}</div></div>`);
+    act.querySelector('[data-test]').addEventListener('click', () => {
+      // "All alerts" tests the first kind; a kind without a platform tests its first platform.
+      const k = kindId || (kinds[0] && kinds[0].id) || '';
+      testAlert(k, pfId || '');
+    });
+    const clr = act.querySelector('[data-clear]');
+    if (clr) clr.addEventListener('click', () => {
+      const all = clone(look.alerts || {}); delete all[key];
+      if (Object.keys(all).length) look.alerts = all; else delete look.alerts;
+      changed(); renderFields();
+    });
+    box.appendChild(act);
+    [fc, fh, fb, ff].forEach(wireReset);
+  }
+
+  // [THEME] A framed section with a header bar; returns the grid to fill.
+  function section(box, title, note) {
+    const sec = el(`<section class="fsec"><h3 class="fsec-h">${escapeHtml(title)}${note ? ` <small>${escapeHtml(note)}</small>` : ''}</h3><div class="fields"></div></section>`);
+    box.appendChild(sec);
+    return sec.querySelector('.fields');
+  }
+
   const FIELD_BUILDERS = {
-    colors(box) {
+    colors(outer) {
+      markThemes();                       // a field edit can make the look stop (or start) matching a theme
+      let box = section(outer, 'Colors');
       colorField(box, 'accent', 'Accent', DEF.accent);
       // Accent 2 defaults to the accent's hue turned 60°: computed live.
       colorField(box, 'accent2', 'Accent 2', hexOf(`oklch(from ${look.accent || DEF.accent} l c calc(h - 60))`, '#b3215f'));
@@ -1009,30 +1466,34 @@
       fc.addEventListener('input', upd); fa.addEventListener('input', upd);
       const fr = f.querySelector('.reset'); if (fr) fr.addEventListener('click', () => { set('fill', null); renderFields(); });
       box.appendChild(f);
-      // Font
-      const ff = el(`<div class="f full"><span>Font${look.font ? '<button type="button" class="reset">Default</button>' : ''}</span>
-        <div class="pair"><input type="text" value="${escapeHtml(look.font || '')}" placeholder="Default (Segoe UI)" aria-label="Font family">
-        <label class="toggle" style="white-space:nowrap"><input type="checkbox"${look.fontIsGoogle ? ' checked' : ''}> Google Font</label></div>
-        <p class="hint">Type a font installed on this PC, or tick Google Font to load it from fonts.google.com (e.g. Rajdhani, Orbitron).</p></div>`);
-      const [ft, fg] = ff.querySelectorAll('input');
-      ft.addEventListener('change', () => { set('font', ft.value.trim() || null); if (!ft.value.trim()) delete look.fontIsGoogle; renderFields(); });
-      fg.addEventListener('change', () => { set('fontIsGoogle', fg.checked || null); });
-      const ffr = ff.querySelector('.reset'); if (ffr) ffr.addEventListener('click', () => { delete look.font; delete look.fontIsGoogle; changed(); renderFields(); });
-      box.appendChild(ff);
+      colorField(box, 'frameColor', 'Frame', hexOf(look.accent || DEF.accent, DEF.accent));
+
+      box = section(outer, 'Font & text');
+      fontField(box);
+      // [FONTSIZE] Fonts differ in size at the same px, so let the look scale
+      // the text. Widgets still shrink text that doesn't fit (width AND
+      // height), so a big setting can't push text outside the panel.
+      textSizeField(box);
       selectField(box, 'weight', 'Weight', [400, 500, 600, 700, 800, 900], 700);
-      rangeField(box, 'frameWidth', 'Frame width', 0, 8, 1, 3, 'px');
       rangeField(box, 'strokeWidth', 'Text outline', 0, 4, 0.5, 0, 'px');
       colorField(box, 'strokeColor', 'Outline color', '#000000');
       selectField(box, 'textShadow', 'Text shadow', [{ v: 'none', l: 'None' }, { v: '0 2px 4px rgba(0,0,0,.8)', l: 'Soft drop' },
         { v: '0 0 6px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.6)', l: 'Dark glow' }, { v: '0 0 8px var(--osw-accent)', l: 'Accent glow' }], 'none', true);
+    },
+    // [ALERTS] The Alerts tab: pick an entry, edit its style.
+    alerts(outer) { buildAlerts(outer); },
+    // [THEME] On the Shape tab now: these change the outline, not color or text.
+    shape(outer) {
+      const box = section(outer, 'Shape details');
+      rangeField(box, 'frameWidth', 'Frame width', 0, 8, 1, 3, 'px');
       rangeField(box, 'chamfer', 'Slant size', 0, 60, 1, 26, 'px');
-      rangeField(box, 'radius', 'Corner radius', 0, 40, 1, 14, 'px');
+      rangeField(box, 'radius', 'Corner radius', 0, 40, 1, 14, 'px', true);
     },
     texture(box) {
       const t = look.texture;
       if (!t) { box.appendChild(el('<p class="hint full">Pick a texture above to adjust it.</p>')); return; }
       if (P.PATTERNS[t]) {
-        selectField(box, 'texturePalette', 'Pattern colors', [{ v: 'original', l: 'Original' }, { v: 'accent', l: 'From accent' }, { v: 'mono', l: 'Dark mono' }], 'original');
+        patternColorFields(box, t);                   // [TEXCOLORS] adds "Custom…" with a color per slot
         rangeField(box, 'textureOpacity', 'Strength', 0.05, 1, 0.05, 0.4, '');
       } else {
         colorField(box, 'textureColor', 'Texture color', '#ffffff');

@@ -18,6 +18,12 @@
 //   4. Back on the normal thread: send the widget the new state so it updates
 //      immediately (new emote picture, progress bar on/off).
 //
+// LOOK (v2.8): the window now follows the same theme as the other OSWTools windows
+//   (Achievement System): logo + title header, a real TabControl whose pages carry the
+//   OSW watermark, a gradient footer with the OSW links and a "Save & Close" button.
+//   All colours/fonts come from OSWTheme, all controls from OSWControls, so a
+//   theme change in the DLL reaches this window too.
+//
 // DESIGN NOTES
 //   * The window edits a COPY. Cancel simply throws the copy away, so nothing
 //     can be half-saved.
@@ -109,9 +115,12 @@ namespace OSWTools
         /// <summary>The edited config. Only valid when DialogResult is OK.</summary>
         public BueTargetConfig Result { get; private set; }
 
-        private const int FormW = 600;
+        private const int FormW = 680;
         private const int PadX = 22;
-        private const int ContentW = FormW - PadX * 2 - 20;   // 20 = room for a scrollbar
+        private const int ContentW = FormW - PadX * 2 - 24;   // 24 = room for a scrollbar
+
+        // The footer links point here. TODO: replace with the Blow Up Emote guide page once it exists.
+        private const string DocsUrl = "https://osuphoenix.notion.site/OSUPhoenix-s-Achievement-System-1fee67e6e2b280c8b150e7463a618c60";
 
         private readonly BueTargetConfig _cfg;
         private readonly string _configPath;
@@ -120,13 +129,13 @@ namespace OSWTools
         private bool _loading = true;
         private int _y;
 
-        private Panel _body;
-        private Panel _cur;                 // where Place() puts controls right now (a tab page)
-        private readonly Panel[] _pages = new Panel[3];
-        private readonly Button[] _tabBtns = new Button[3];
-        private int _pagesTop;
-        private Panel _footer;
+        private TabControl _tabs;
+        private TabPage _cur;                   // the tab page Place() writes into right now
+        private readonly TabPage[] _pages = new TabPage[3];
 
+        private CheckBox _chk7tv;
+        private CheckBox _chkBttv;
+        private CheckBox _chkFfz;
         private TextBox _txtEmote;
         private TextBox _txtImage;
         private TextBox _txtAllowed;
@@ -142,6 +151,12 @@ namespace OSWTools
         private NumericUpDown _numDeflate;
         private CheckBox _chkProgress;
         private CheckBox _chkHidden;
+        private CheckBox _chkAutoEnd;
+        private CheckBox _chkAnnounce;
+        private Button _btnBarColor;
+        private string _barColorHex = "#ff7a1a";
+        private NumericUpDown _numAutoEnd;
+        private NumericUpDown _numAutoWarn;
 
         private Label _lblPreview;
         private Label _lblError;
@@ -156,13 +171,14 @@ namespace OSWTools
             _initialImage = _cfg.ImageOverrideUrl ?? "";
 
             Text = "Blow Up Emote - Settings";
-            ClientSize = new Size(FormW, 720);
+            ClientSize = new Size(FormW, 780);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
             BackColor = OSWTheme.CBg;
             ForeColor = OSWTheme.CTxt;
             Font = OSWTheme.Fn;
+            DoubleBuffered = true;   // less flicker when the watermark repaints
 
             BuildUi();
             LoadFromConfig();
@@ -223,82 +239,129 @@ namespace OSWTools
         }
 
         // ---------------------------------------------------------------------
-        // Tabs. The window used to be one long scrolling list, so new settings
-        // were off-screen. Now there are three short pages and a row of buttons.
-        // (Plain buttons instead of a TabControl: WinForms' TabControl can't be
-        // given a dark theme cleanly, buttons can.)
+        // Tabs. A real TabControl, like the Achievement System window. Each page
+        // scrolls by itself (TabPage.AutoScroll) and carries the OSW watermark.
         // ---------------------------------------------------------------------
         private static readonly string[] TabNames = { "Emote", "Round", "Growth" };
 
-        private void BuildTabStrip()
-        {
-            _y += 4;
-            int w = (ContentW + 20) / TabNames.Length;
-            for (int i = 0; i < TabNames.Length; i++)
-            {
-                int idx = i;
-                var b = OSWControls.MkBtn(TabNames[i], OSWTheme.CIn);
-                b.SetBounds(PadX + i * w, _y, w - 6, 30);
-                b.Click += (o, e) => ShowPage(idx);
-                _body.Controls.Add(b);
-                _tabBtns[i] = b;
-            }
-            _y += 38;
-            _pagesTop = _y;
-        }
-
-        // Start the next tab page and make Place() write into it.
+        // Start writing into tab page 'index'. Place() / Section() now add to it.
         private void NewPage(int index)
         {
-            var pg = new Panel
-            {
-                Left = 0,
-                Top = _pagesTop,
-                Width = FormW,
-                Height = ClientSize.Height - 132 - _pagesTop,
-                AutoScroll = true,
-                BackColor = OSWTheme.CBg,
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
-            };
-            _body.Controls.Add(pg);
-            _pages[index] = pg;
+            var pg = _pages[index];
+            pg.AutoScroll = true;
             _cur = pg;
-            _y = 0;
+            _y = 12;
         }
 
-        private void ShowPage(int index)
+        // Tell the page how tall its content is so the scrollbar appears when needed.
+        private void FinishPage(int index)
         {
-            for (int i = 0; i < _pages.Length; i++)
-            {
-                if (_pages[i] != null) _pages[i].Visible = i == index;
-                if (_tabBtns[i] != null) _tabBtns[i].BackColor = i == index ? OSWTheme.CAcc : OSWTheme.CIn;
-            }
+            _pages[index].AutoScrollMinSize = new Size(0, _y + 16);
         }
 
         private void BuildUi()
         {
-            _body = new Panel { Dock = DockStyle.Fill, AutoScroll = false, BackColor = OSWTheme.CBg };
-            _cur = _body;
-            _footer = new Panel { Dock = DockStyle.Bottom, Height = 132, BackColor = OSWTheme.CPnl };
+            // -- the three tab pages ---------------------------------------------
+            _tabs = new TabControl { Dock = DockStyle.Fill, Font = OSWTheme.FnB, BackColor = OSWTheme.CBg };
+            for (int i = 0; i < TabNames.Length; i++)
+            {
+                var pg = new TabPage(TabNames[i]) { BackColor = OSWTheme.CBg, Padding = new Padding(0) };
+                pg.Paint += OSWTheme.PaintWatermark;   // the faint OSW logo behind the settings
+                _tabs.TabPages.Add(pg);
+                _pages[i] = pg;
+            }
 
-            // Order matters for docking: Fill first, then Bottom.
-            Controls.Add(_body);
-            Controls.Add(_footer);
+            // -- status strip: live preview + error, just above the footer ----------
+            var strip = new Panel { Dock = DockStyle.Bottom, Height = 92, BackColor = OSWTheme.CPnl };
+            _lblPreview = new Label
+            {
+                Left = PadX,
+                Top = 8,
+                Width = FormW - PadX * 2,
+                Height = 56,
+                Font = OSWTheme.Fn,
+                ForeColor = OSWTheme.CPrev,
+                BackColor = Color.Transparent,
+                AutoSize = false
+            };
+            _lblError = new Label
+            {
+                Left = PadX,
+                Top = 66,
+                Width = FormW - PadX * 2,
+                Height = 20,
+                Font = OSWTheme.FnB,
+                ForeColor = OSWTheme.CError,
+                BackColor = Color.Transparent,
+                AutoSize = false
+            };
+            strip.Controls.Add(_lblPreview);
+            strip.Controls.Add(_lblError);
 
-            _y = 16;
+            // -- footer: OSW links on the left, Cancel + Save & Close on the right ----
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = 58, BackColor = OSWTheme.CPnl };
+            footer.Paint += OSWTheme.PaintFooterGradient;
+            var links = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top,
+                Location = new Point(10, 16)
+            };
+            OSWControls.AddOswFooterLinks(links, DocsUrl);
+            footer.Controls.Add(links);
 
-            // -- title ---------------------------------------------------------
+            _btnSave = OSWControls.MkBtn("Save & Close", OSWTheme.CAcc);
+            _btnSave.Size = new Size(140, 32);
+            _btnSave.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+            _btnSave.Click += OnSaveClick;
+            _btnCancel = OSWControls.MkBtn("Cancel", OSWTheme.CIn);
+            _btnCancel.Size = new Size(90, 32);
+            _btnCancel.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+            _btnCancel.DialogResult = DialogResult.Cancel;
+            footer.Resize += (s, e) =>
+            {
+                int top = (footer.Height - _btnSave.Height) / 2;
+                _btnSave.Location = new Point(footer.Width - _btnSave.Width - 14, top);
+                _btnCancel.Location = new Point(_btnSave.Left - _btnCancel.Width - 8, top);
+            };
+            footer.Controls.Add(_btnSave);
+            footer.Controls.Add(_btnCancel);
+
+            // -- header: logo + title ---------------------------------------------
+            var header = new Panel { Dock = DockStyle.Top, Height = 64, BackColor = OSWTheme.CPnl };
+            header.Paint += OSWTheme.PaintHeaderBg;
+            var logo = new PictureBox
+            {
+                ImageLocation = OSWTheme.LogoUrl,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(52, 52),
+                Location = new Point(10, 6),
+                BackColor = Color.Transparent
+            };
             var title = new Label
             {
                 Text = "Blow Up Emote",
                 Font = OSWTheme.FnT,
                 ForeColor = OSWTheme.CTxt,
                 BackColor = Color.Transparent,
-                AutoSize = false,
-                TextAlign = ContentAlignment.MiddleLeft
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter
             };
-            Place(title, 34);
+            header.Controls.Add(title);
+            header.Controls.Add(logo);
 
+            // Docking order: the Fill control first, then the edges. Whatever is added
+            // last is placed first, so the footer ends up lowest and the header on top.
+            Controls.Add(_tabs);
+            Controls.Add(strip);
+            Controls.Add(footer);
+            Controls.Add(header);
+
+            NewPage(0);   // tab: Emote
+
+            // where settings are saved (small, quiet line at the top of the first tab)
             var sub = new Label
             {
                 Text = "Balloon '" + _cfg.TargetId + "'   -   saved to: " + _configPath,
@@ -309,7 +372,6 @@ namespace OSWTools
                 AutoEllipsis = true
             };
             Place(sub, 18);
-
             string folder = "";
             try { folder = Path.GetDirectoryName(_configPath) ?? ""; } catch (Exception) { folder = ""; }
             if (folder.Length > 0)
@@ -318,11 +380,9 @@ namespace OSWTools
                 link.Left = PadX;
                 link.Top = _y;
                 _cur.Controls.Add(link);
-                _y += 20;
+                _y += 22;
             }
 
-            BuildTabStrip();
-            NewPage(0);   // tab: Emote
             // -- EMOTE ---------------------------------------------------------
             Section("DEFAULT EMOTE (optional)");
 
@@ -364,7 +424,20 @@ namespace OSWTools
                  "in Streamer.bot (channel point reward, bits, sub, command, power-up...) and set who may use them there. " +
                  "The viewer's text must contain a real emote.", 62);
 
-            _pages[0].AutoScrollMinSize = new Size(0, _y + 16);
+            // -- EMOTE SERVICES -------------------------------------------------
+            Section("WHICH EMOTES ARE REAL EMOTES");
+
+            Help("Twitch's own emotes (channel + global) are always recognised. Twitch does not know emotes from the " +
+                 "services below, so tick the ones your chat uses. BUE downloads the list for YOUR channel plus each " +
+                 "service's global emotes, and uses the same list to find the picture.", 62);
+            _chk7tv = Place(OSWControls.MkCheck("7TV"), 24);
+            _chkBttv = Place(OSWControls.MkCheck("BetterTTV (BTTV)"), 24);
+            _chkFfz = Place(OSWControls.MkCheck("FrankerFaceZ (FFZ)"), 24);
+            Help("Names must match exactly, capitals included. To check a service, run the 'Blow Up Emote - Refresh Emotes' " +
+                 "action: it writes how many emotes each service returned (or why not) to bue_log.txt. " +
+                 "A word no enabled service knows is still refused unless you put it in 'Allowed emotes' on the Round tab.", 62);
+
+            FinishPage(0);
 
             NewPage(1);   // tab: Round
             // -- ROUND ---------------------------------------------------------
@@ -372,6 +445,24 @@ namespace OSWTools
 
             _chkHidden = Place(OSWControls.MkCheck("Hide the balloon between rounds"), 24);
             Help("The balloon stays hidden, and emotes do nothing, until a round is started with the 'Blow Up Emote - Start Round' action (attach a reward, command, bits... trigger; its text is the emote). After a pop it hides and stays off until the next start. If viewers start rounds, set 'Chat can change it' above.", 72);
+
+            Gap(6);
+            _chkAnnounce = Place(OSWControls.MkCheck("Post round messages in chat (started, popped, ended)"), 24);
+            Help("Chat is told when a round starts (what to spam), who popped it, or that it ended without a pop. " +
+                 "Sent to every platform you have enabled. Replies to one viewer (a rejected entry, a refund) are always sent.", 48);
+
+            Gap(6);
+            _chkAutoEnd = Place(OSWControls.MkCheck("End the round if the balloon sits empty"), 24);
+            Place(OSWControls.MkFieldLbl("Ends after it has been at 0% for this many seconds"), 18);
+            _numAutoEnd = Place(OSWControls.MkSpinner(10m, 3600m, 120m, 0), 26);
+            _numAutoEnd.Width = 120;
+            _numAutoEnd.Increment = 10m;
+            Place(OSWControls.MkFieldLbl("Emote flashes red for the last ___ seconds of that countdown (0 = no warning)"), 18);
+            _numAutoWarn = Place(OSWControls.MkSpinner(0m, 3600m, 10m, 0), 26);
+            _numAutoWarn.Width = 120;
+            Help("The countdown only runs while the balloon is at 0%: from the start of a round until someone adds to it, and again whenever deflation drains it empty. " +
+                 "Any entry stops it. When it runs out the round ends like Cancel - no pop, no winner. " +
+                 "A balloon above 0% that is not deflating never empties, so it never times out. Needs the 'Blow Up Emote - Expire Check' action.", 62);
 
             // -- WHICH EMOTES CHAT MAY PICK -------------------------------------
             Section("EMOTES CHAT MAY PICK");
@@ -381,7 +472,7 @@ namespace OSWTools
             _txtAllowed.Multiline = true;
             _txtAllowed.ScrollBars = ScrollBars.Vertical;
             Place(_txtAllowed, 56);
-            Help("Separate with commas, spaces or new lines. If you list any, viewers can only start a round with these.", 30);
+            Help("Separate with commas, spaces or new lines. If you list any, viewers can only start a round with these. A name listed here is ALSO accepted as an emote even when no service knows it (the picture link then comes from you, or the balloon shows a placeholder).", 62);
 
             Gap(6);
             Place(OSWControls.MkFieldLbl("Banned emotes"), 18);
@@ -389,14 +480,26 @@ namespace OSWTools
             _txtBanned.Multiline = true;
             _txtBanned.ScrollBars = ScrollBars.Vertical;
             Place(_txtBanned, 56);
-            Help("Viewers can never pick these (banned beats allowed). You, the streamer, are never blocked by either list.", 30);
+            Help("Viewers can never pick these (banned beats allowed). These lists apply to everyone, you included.", 30);
 
             // -- DISPLAY -------------------------------------------------------
             Section("DISPLAY");
 
             _chkProgress = Place(OSWControls.MkCheck("Show progress information (progress bar and percentage)"), 24);
 
-            _pages[1].AutoScrollMinSize = new Size(0, _y + 16);
+            Gap(4);
+            Place(OSWControls.MkFieldLbl("Progress bar color (click to change)"), 18);
+            _btnBarColor = Place(new Button
+            {
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            }, 28);
+            _btnBarColor.Width = 160;
+            _btnBarColor.FlatAppearance.BorderSize = 1;
+            _btnBarColor.Click += OnPickBarColor;
+
+            FinishPage(1);
 
             NewPage(2);   // tab: Growth
             // -- GROWTH --------------------------------------------------------
@@ -445,48 +548,9 @@ namespace OSWTools
             Help("The balloon slowly loses air while it is on screen, so chat has to keep up to pop it. " +
                  "Hundredths work: 0.25 loses a quarter of a percent every second.", 32);
 
-            _pages[2].AutoScrollMinSize = new Size(0, _y + 16);
+            FinishPage(2);
 
-            ShowPage(0);
-
-
-            // -- footer --------------------------------------------------------
-            _lblPreview = new Label
-            {
-                Left = PadX,
-                Top = 10,
-                Width = FormW - PadX * 2,
-                Height = 56,
-                Font = OSWTheme.Fn,
-                ForeColor = OSWTheme.CPrev,
-                BackColor = Color.Transparent,
-                AutoSize = false
-            };
-            _footer.Controls.Add(_lblPreview);
-
-            _lblError = new Label
-            {
-                Left = PadX,
-                Top = 70,
-                Width = FormW - PadX * 2,
-                Height = 20,
-                Font = OSWTheme.FnB,
-                ForeColor = OSWTheme.CError,
-                BackColor = Color.Transparent,
-                AutoSize = false
-            };
-            _footer.Controls.Add(_lblError);
-
-            _btnCancel = OSWControls.MkBtn("Cancel", OSWTheme.CPnl);
-            _btnCancel.SetBounds(FormW - PadX - 100, 96, 100, 28);
-            _btnCancel.DialogResult = DialogResult.Cancel;
-            _footer.Controls.Add(_btnCancel);
-
-            _btnSave = OSWControls.MkBtn("Save", OSWTheme.CAcc);
-            _btnSave.SetBounds(FormW - PadX - 100 - 10 - 120, 96, 120, 28);
-            _btnSave.Click += OnSaveClick;
-            _footer.Controls.Add(_btnSave);
-
+            // -- wiring ----------------------------------------------------------
             AcceptButton = _btnSave;
             CancelButton = _btnCancel;
 
@@ -506,6 +570,13 @@ namespace OSWTools
             _numDeflate.ValueChanged += OnAnyChange;
             _chkProgress.CheckedChanged += OnAnyChange;
             _chkHidden.CheckedChanged += OnAnyChange;
+            _chkAutoEnd.CheckedChanged += OnAnyChange;
+            _chkAnnounce.CheckedChanged += OnAnyChange;
+            _numAutoEnd.ValueChanged += OnAnyChange;
+            _numAutoWarn.ValueChanged += OnAnyChange;
+            _chk7tv.CheckedChanged += OnAnyChange;
+            _chkBttv.CheckedChanged += OnAnyChange;
+            _chkFfz.CheckedChanged += OnAnyChange;
         }
 
         // ---------------------------------------------------------------------
@@ -538,6 +609,14 @@ namespace OSWTools
 
             _chkProgress.Checked = _cfg.ShowProgress;
             _chkHidden.Checked = _cfg.StartHidden;
+            _chkAutoEnd.Checked = _cfg.AutoEndEnabled;
+            _chkAnnounce.Checked = _cfg.AnnounceInChat;
+            _chk7tv.Checked = _cfg.Use7TV;
+            _chkBttv.Checked = _cfg.UseBTTV;
+            _chkFfz.Checked = _cfg.UseFFZ;
+            SetBarColor(BlowUpEmoteEngine.NormalizeHexColor(_cfg.ProgressBarColor, "#ff7a1a"));
+            _numAutoEnd.Value = Clamp((decimal)_cfg.AutoEndSeconds, _numAutoEnd.Minimum, _numAutoEnd.Maximum);
+            _numAutoWarn.Value = Clamp((decimal)_cfg.AutoEndWarnSeconds, _numAutoWarn.Minimum, _numAutoWarn.Maximum);
 
             SyncEnabledStates();
         }
@@ -565,6 +644,14 @@ namespace OSWTools
             c.DeflatePerSecond = (double)_numDeflate.Value;
             c.ShowProgress = _chkProgress.Checked;
             c.StartHidden = _chkHidden.Checked;
+            c.AutoEndEnabled = _chkAutoEnd.Checked;
+            c.AnnounceInChat = _chkAnnounce.Checked;
+            c.Use7TV = _chk7tv.Checked;
+            c.UseBTTV = _chkBttv.Checked;
+            c.UseFFZ = _chkFfz.Checked;
+            c.ProgressBarColor = _barColorHex;
+            c.AutoEndSeconds = (int)_numAutoEnd.Value;
+            c.AutoEndWarnSeconds = (int)_numAutoWarn.Value;
             c.AllowedEmotes = BlowUpEmoteEngine.ParseEmoteList(_txtAllowed.Text);
             c.BannedEmotes = BlowUpEmoteEngine.ParseEmoteList(_txtBanned.Text);
         }
@@ -589,6 +676,29 @@ namespace OSWTools
         // ---------------------------------------------------------------------
         // Save
         // ---------------------------------------------------------------------
+
+        // Colour picker: the button itself shows the colour (and its code).
+        private void SetBarColor(string hex)
+        {
+            _barColorHex = hex;
+            Color color = ColorTranslator.FromHtml(hex);
+            _btnBarColor.BackColor = color;
+            _btnBarColor.ForeColor = color.GetBrightness() > 0.55f ? Color.Black : Color.White;   // readable on any colour
+            _btnBarColor.Text = hex.ToUpperInvariant();
+        }
+
+        private void OnPickBarColor(object sender, EventArgs e)
+        {
+            using (ColorDialog dlg = new ColorDialog())
+            {
+                dlg.FullOpen = true;
+                dlg.Color = ColorTranslator.FromHtml(_barColorHex);
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                Color c = dlg.Color;
+                SetBarColor("#" + c.R.ToString("x2") + c.G.ToString("x2") + c.B.ToString("x2"));
+                OnAnyChange(sender, e);
+            }
+        }
 
         private void ShowError(string text)
         {
@@ -615,6 +725,12 @@ namespace OSWTools
             if (_chkRandom.Checked && _numRndMin.Value > _numRndMax.Value)
             {
                 ShowError("The smallest random amount can't be larger than the largest.");
+                return;
+            }
+
+            if (_chkAutoEnd.Checked && _numAutoWarn.Value > _numAutoEnd.Value)
+            {
+                ShowError("The red warning can't be longer than the time before the round ends.");
                 return;
             }
 

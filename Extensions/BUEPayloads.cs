@@ -53,6 +53,7 @@ namespace OSWTools.BlowUpEmote
                 active = BlowUpEmoteEngine.IsBalloonActive(config, state),   // false after a pop when StartHidden
                 popBehavior = config.PopBehavior.ToString(),
                 totalPops = state.TotalPops,
+                expiresInSeconds = BlowUpEmoteEngine.SecondsUntilAutoEnd(state, config, System.DateTime.UtcNow),
                 emoteName = emoteName ?? "",
                 emoteImage = emoteImage ?? "",
                 settings = Settings(config)
@@ -74,6 +75,7 @@ namespace OSWTools.BlowUpEmote
                 active = BlowUpEmoteEngine.IsBalloonActive(config, state),
                 started = started,
                 reset = reset,
+                expiresInSeconds = BlowUpEmoteEngine.SecondsUntilAutoEnd(state, config, System.DateTime.UtcNow),
                 lastPoppedBy = state.LastPoppedBy ?? "",
                 emoteName = emoteName ?? "",
                 emoteImage = emoteImage ?? "",
@@ -88,7 +90,9 @@ namespace OSWTools.BlowUpEmote
             return new
             {
                 showProgress = c.ShowProgress,
-                deflatePerSecond = c.DeflatePerSecond      // widget draws the drain between messages
+                progressColor = c.ProgressBarColor,         // widget paints the progress bar with this
+                deflatePerSecond = c.DeflatePerSecond,     // widget draws the drain between messages
+                autoEndWarnSeconds = c.AutoEndWarnSeconds  // widget flashes red for this many seconds before the end
             };
         }
     }

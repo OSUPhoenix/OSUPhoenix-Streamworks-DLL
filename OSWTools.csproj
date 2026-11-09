@@ -89,6 +89,7 @@
     <Compile Include="Data\**\*.cs" />
     <Compile Include="Utilities\**\*.cs" />
     <Compile Include="Extensions\**\*.cs" />
+    <Compile Include ="externals\**\*.cs" />
     <Compile Include="Panels\**\*.cs" />
 <Compile Include="Versioning\**\*.cs" />
 <Compile Include="Scheduling\OmsCredentialBuilder.cs"

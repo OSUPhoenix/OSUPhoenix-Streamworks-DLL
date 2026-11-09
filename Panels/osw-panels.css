@@ -56,7 +56,7 @@
 
 /* Marker the sync action and the CDN fallback check for. If this variable
    exists, the file loaded completely. Don't remove it. */
-:root { --osw-loaded: 1; --osw-version: "1.6.2"; }
+:root { --osw-loaded: 1; --osw-version: "1.8.0"; }
 
 /* Lets the RGB skin's rainbow rotate smoothly. @property tells the browser
    the variable is an angle, so it can animate it like a real property. */
@@ -182,7 +182,11 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: var(--osw-pad-y) var(--osw-pad-r) var(--osw-pad-y) var(--osw-pad-l);
+  /* v1.7: each side is the bigger of the skin/shape padding and the
+     measured safe inset (--osw-safe-*, set by osw-panels.js from the shape
+     actually drawn), so text can't reach past a slant, curve or frame. */
+  padding: max(var(--osw-pad-y), var(--osw-safe-t, 0px)) max(var(--osw-pad-r), var(--osw-safe-r, 0px))
+           max(var(--osw-pad-y), var(--osw-safe-b, 0px)) max(var(--osw-pad-l), var(--osw-safe-l, 0px));
   transition: opacity var(--osw-swap-ms) ease;
 }
 
@@ -388,7 +392,7 @@
 .osw-shape--scooped        { --osw-pad-r: var(--osw-pad-x); }
 /* v1.2 shapes */
 .osw-shape--top-tab        { --osw-pad-r: var(--osw-pad-x); }
-.osw-shape--top-tab > .osw-panel__content { padding-top: calc(var(--osw-pad-y) + var(--osw-tab-h)); }
+.osw-shape--top-tab > .osw-panel__content { padding-top: max(calc(var(--osw-pad-y) + var(--osw-tab-h)), var(--osw-safe-t, 0px)); }
 .osw-shape--octagon,
 .osw-shape--trapezoid,
 .osw-shape--trapezoid-inverted { --osw-pad-l: calc(var(--osw-pad-x) + var(--osw-chamfer) * .6); --osw-pad-r: calc(var(--osw-pad-x) + var(--osw-chamfer) * .6); }
@@ -590,7 +594,7 @@
   --osw-bevel-h: 12px;
   --osw-pad-y: 14px;
 }
-.osw-skin--bevel > .osw-panel__content { padding-top: calc(var(--osw-pad-y) + var(--osw-bevel-h)); }
+.osw-skin--bevel > .osw-panel__content { padding-top: max(calc(var(--osw-pad-y) + var(--osw-bevel-h)), var(--osw-safe-t, 0px)); }
 .osw-skin--bevel > .osw-panel__fill::before {
   content: ""; left: 0; right: 0; top: 0; height: var(--osw-bevel-h); z-index: 2;
   background: linear-gradient(to bottom,
