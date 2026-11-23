@@ -43,6 +43,92 @@ namespace OSWTools.BlowUpEmote
     public static class BlowUpEmoteEngine
     {
         // ─────────────────────────────────────────────────────────────────
+        // PURE: split a chat message into words.
+        //
+        // WHY NOT JUST Split(' '): chat clients don't only put a plain space between
+        // emotes. Emote pickers and extensions can use a NON-BREAKING space (U+00A0),
+        // and Chatterino / 7TV add invisible characters (zero-width space U+200B, or
+        // the "tag" character U+E0000) to get past Twitch's duplicate-message filter.
+        // To a human "KEKW<nbsp>KEKW" is two emotes; to a plain Split(' ') it is ONE
+        // unknown word, so the message earned nothing. Here every kind of whitespace,
+        // control character, invisible "format" character and tag-plane character
+        // counts as a word break.
+        // ─────────────────────────────────────────────────────────────────
+        // v2.8.1: PURE. True for a character that is a word break OR is invisible and so
+        // can never be part of an emote name. Added in this version because some chat
+        // tools append characters that are NOT whitespace and NOT "format" characters:
+        //   U+034F combining grapheme joiner (a "mark"), U+2800 Braille blank (a "symbol"),
+        //   U+3164 / U+115F / U+1160 / U+FFA0 Hangul fillers (a "letter"), U+17B4/17B5.
+        // Glued onto "KEKW" they made "KEKW<U+2800>" a different word, so that emote was
+        // lost. Marks (accents), private-use and unassigned characters are treated the same.
+        private static bool IsInvisibleOrBreak(char c)
+        {
+            if (char.IsWhiteSpace(c) || char.IsControl(c)) return true;
+            switch (c)
+            {
+                case '⠀': case 'ㅤ': case 'ᅟ': case 'ᅠ':
+                case 'ﾠ': case '឴': case '឵': case '᠎':
+                    return true;
+            }
+            switch (char.GetUnicodeCategory(c))
+            {
+                case UnicodeCategory.Format:
+                case UnicodeCategory.SpaceSeparator:
+                case UnicodeCategory.LineSeparator:
+                case UnicodeCategory.ParagraphSeparator:
+                case UnicodeCategory.NonSpacingMark:       // U+034F, variation selectors
+                case UnicodeCategory.EnclosingMark:
+                case UnicodeCategory.PrivateUse:
+                case UnicodeCategory.OtherNotAssigned:
+                    return true;
+            }
+            return false;
+        }
+
+        public static string[] TokenizeMessage(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return new string[0];
+            var sb = new StringBuilder(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '\uDB40' && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    i++;                       // tag character U+E00xx: invisible, acts as a break
+                    sb.Append(' ');
+                    continue;
+                }
+                sb.Append(IsInvisibleOrBreak(c) ? ' ' : c);
+            }
+            return sb.ToString().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>
+        /// PURE: for the log. Lists any unusual characters in a message ("U+00A0 at 4"),
+        /// or "" when it is plain text. Lets us SEE why a message didn't count.
+        /// </summary>
+        public static string DescribeOddChars(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var found = new List<string>();
+            for (int i = 0; i < text.Length && found.Count < 8; i++)
+            {
+                char c = text[i];
+                if (c == ' ' || (c > ' ' && c < '\u007f')) continue;
+                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    int cp = char.ConvertToUtf32(c, text[i + 1]);
+                    if (cp >= 0x1F000) { i++; continue; }          // ordinary emoji: not interesting
+                    found.Add("U+" + cp.ToString("X4") + " at " + i);
+                    i++;
+                    continue;
+                }
+                found.Add("U+" + ((int)c).ToString("X4") + " at " + i);
+            }
+            return string.Join(", ", found);
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // PURE: Count how many tokens in `message` are in `matchSet`.
         //
         // WHY TOKEN MATCHING (not substring/"Contains"):
@@ -58,7 +144,7 @@ namespace OSWTools.BlowUpEmote
             if (string.IsNullOrWhiteSpace(message) || matchSet == null || matchSet.Count == 0)
                 return 0;
 
-            var tokens = message.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = TokenizeMessage(message);
 
             int count = tokens.Count(t => matchSet.Contains(t));
 
@@ -371,7 +457,7 @@ namespace OSWTools.BlowUpEmote
                 return "";
 
             var matchSet = MatchSetFor(lib, config, platform, roundEmote);
-            foreach (var t in message.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var t in TokenizeMessage(message))
                 if (matchSet.Contains(t))
                     return t;
             return "";
@@ -767,7 +853,7 @@ namespace OSWTools.BlowUpEmote
         public static string FindHttpsUrl(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
-            foreach (var t in text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var t in TokenizeMessage(text))
                 if (IsHttpsUrl(t)) return t.Trim();
             return "";
         }
@@ -807,7 +893,7 @@ namespace OSWTools.BlowUpEmote
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
-            var tokens = text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = TokenizeMessage(text);
 
             if (emotesInMessage != null && emotesInMessage.Count > 0)
                 foreach (var t in tokens)
