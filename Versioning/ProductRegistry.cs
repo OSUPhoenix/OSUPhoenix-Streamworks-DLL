@@ -425,11 +425,20 @@ namespace OSWTools
                     continue;
 
                 // ── Is this product actually installed locally? ─────────────
-                if (!IsModuleInstalled(p.Code)) continue;
+                // CHANGED: the DLL's own row is special. The sheet lists it as
+                // "OSWTOOLS", but the DLL registers itself in globals as "OSW"
+                // (IntegrationRegistry.DllModuleCode), so the global lookup
+                // never matched and DLL updates were silently skipped. If this
+                // code is running, the DLL is installed by definition, and its
+                // version is OSWVersion.Current — no global needed.
+                bool isDllRow = IsDllProductCode(p.Code);
+                if (!isDllRow && !IsModuleInstalled(p.Code)) continue;
 
-                string installedVer = GetModuleVersion(p.Code) ?? "";
+                string installedVer = isDllRow ? currentDll : (GetModuleVersion(p.Code) ?? "");
                 string sheetVer     = (p.CurrentVersion ?? "").Trim();
-                string minDll       = (p.MinDllVersion  ?? "").Trim();
+                // The DLL can't require a newer version of itself, so its own
+                // row's Min DLL Version (usually "—") is ignored.
+                string minDll       = isDllRow ? "" : (p.MinDllVersion ?? "").Trim();
 
                 // ── Compare widget version: installed vs sheet ──────────────
                 // Fail-soft: empty/unparseable values short-circuit to
@@ -481,6 +490,23 @@ namespace OSWTools
 
             return outdated;
         }
+        // ─────────────────────────────────────────────────────────────────────
+        // NEW: which registry rows mean "OSWTools.dll itself"
+        //
+        // "OSWTOOLS" is the code in the registry sheet. "OSW" is the code the
+        // DLL uses for its own OSUP_OSW_* globals. Accepting both means the
+        // check works whichever one the sheet uses now or later.
+        // ─────────────────────────────────────────────────────────────────────
+        private static readonly string[] DllProductCodes = { "OSWTOOLS", DllModuleCode };
+
+        private static bool IsDllProductCode(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return false;
+            foreach (string c in DllProductCodes)
+                if (string.Equals(code.Trim(), c, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // Internal helper — version compare with graceful failure
         //

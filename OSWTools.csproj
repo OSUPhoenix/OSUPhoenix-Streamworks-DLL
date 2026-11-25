@@ -92,10 +92,12 @@
     <Compile Include ="externals\**\*.cs" />
     <Compile Include="Panels\**\*.cs" />
 <Compile Include="Versioning\**\*.cs" />
+<Compile Include="Functions\**\*.cs" />
 <Compile Include="Scheduling\OmsCredentialBuilder.cs"
          Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
   <ItemGroup>
+  <EmbeddedResource Include="Versioning\OSW-FixReferences.ps1" />
     <EmbeddedResource Include="Theme\OSUPhoenix Logo.png" />
     <EmbeddedResource Include="Theme\StreamWorks 500 px.png" />
     <EmbeddedResource Include="Theme\Streamworks Notion Banner.png" />

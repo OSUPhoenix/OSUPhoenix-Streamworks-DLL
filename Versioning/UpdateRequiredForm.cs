@@ -197,7 +197,7 @@ namespace OSWTools.Versioning
             var lblExplain = new Label
             {
                 Text      = "Open the GitHub releases page to grab the latest OSWTools.dll, "
-                          + "then drop it into your Streamer.bot folder and restart SB.",
+                          + "then drop it into Streamer.bot's \"dlls\" folder and restart SB.",
                 Font      = OSWTheme.Fn,
                 ForeColor = OSWTheme.CTxt,
                 BackColor = Color.Transparent,

@@ -56,7 +56,7 @@ namespace OSWTools.BlowUpEmote
         public const string Tool = "BlowUpEmote";
 
         /// <summary>Build tag of the DLL code. Logged by Start/Cancel/Status so you can confirm the rebuilt DLL is the one Streamer.bot is running.</summary>
-        public const string BuildTag = "2.8.0";
+        public const string BuildTag = "1.1.0";
 
         /// <summary>
         /// The oldest OSWTools.dll (OSWVersion.Current) these action scripts can run on.

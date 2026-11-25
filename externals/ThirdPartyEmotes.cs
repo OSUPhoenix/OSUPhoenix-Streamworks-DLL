@@ -366,6 +366,28 @@ namespace OSWTools
             }
         }
 
+        /// <summary>
+        /// Every emote NAME the enabled services have (7TV, BTTV, FFZ). Loads the lists if they are
+        /// not in memory yet (same timers as GetThirdPartyEmoteImage), never forces a download.
+        /// Used to cut apart emotes that arrive glued together ("KEKWKappaKEKW").
+        /// </summary>
+        public HashSet<string> GetThirdPartyEmoteNames(bool use7tv, bool useBttv, bool useFfz, int ttlHours = 6)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            if (!use7tv && !useBttv && !useFfz) return names;
+            lock (_tpLock)
+            {
+                TpLoad();
+                foreach (string src in TpOrder)
+                {
+                    if (!TpEnabled(src, use7tv, useBttv, useFfz)) continue;
+                    TpEnsure(src, false, ttlHours, TimeSpan.MaxValue);
+                    foreach (string n in TpSource(src).Emotes.Keys) names.Add(n);
+                }
+            }
+            return names;
+        }
+
         private string TpFind(string name, bool use7tv, bool useBttv, bool useFfz)
         {
             foreach (string src in TpOrder)

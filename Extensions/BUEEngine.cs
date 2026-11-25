@@ -43,6 +43,92 @@ namespace OSWTools.BlowUpEmote
     public static class BlowUpEmoteEngine
     {
         // ─────────────────────────────────────────────────────────────────
+        // PURE: split a chat message into words.
+        //
+        // WHY NOT JUST Split(' '): chat clients don't only put a plain space between
+        // emotes. Emote pickers and extensions can use a NON-BREAKING space (U+00A0),
+        // and Chatterino / 7TV add invisible characters (zero-width space U+200B, or
+        // the "tag" character U+E0000) to get past Twitch's duplicate-message filter.
+        // To a human "KEKW<nbsp>KEKW" is two emotes; to a plain Split(' ') it is ONE
+        // unknown word, so the message earned nothing. Here every kind of whitespace,
+        // control character, invisible "format" character and tag-plane character
+        // counts as a word break.
+        // ─────────────────────────────────────────────────────────────────
+        // v2.8.1: PURE. True for a character that is a word break OR is invisible and so
+        // can never be part of an emote name. Added in this version because some chat
+        // tools append characters that are NOT whitespace and NOT "format" characters:
+        //   U+034F combining grapheme joiner (a "mark"), U+2800 Braille blank (a "symbol"),
+        //   U+3164 / U+115F / U+1160 / U+FFA0 Hangul fillers (a "letter"), U+17B4/17B5.
+        // Glued onto "KEKW" they made "KEKW<U+2800>" a different word, so that emote was
+        // lost. Marks (accents), private-use and unassigned characters are treated the same.
+        private static bool IsInvisibleOrBreak(char c)
+        {
+            if (char.IsWhiteSpace(c) || char.IsControl(c)) return true;
+            switch (c)
+            {
+                case '⠀': case 'ㅤ': case 'ᅟ': case 'ᅠ':
+                case 'ﾠ': case '឴': case '឵': case '᠎':
+                    return true;
+            }
+            switch (char.GetUnicodeCategory(c))
+            {
+                case UnicodeCategory.Format:
+                case UnicodeCategory.SpaceSeparator:
+                case UnicodeCategory.LineSeparator:
+                case UnicodeCategory.ParagraphSeparator:
+                case UnicodeCategory.NonSpacingMark:       // U+034F, variation selectors
+                case UnicodeCategory.EnclosingMark:
+                case UnicodeCategory.PrivateUse:
+                case UnicodeCategory.OtherNotAssigned:
+                    return true;
+            }
+            return false;
+        }
+
+        public static string[] TokenizeMessage(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return new string[0];
+            var sb = new StringBuilder(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '\uDB40' && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    i++;                       // tag character U+E00xx: invisible, acts as a break
+                    sb.Append(' ');
+                    continue;
+                }
+                sb.Append(IsInvisibleOrBreak(c) ? ' ' : c);
+            }
+            return sb.ToString().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>
+        /// PURE: for the log. Lists any unusual characters in a message ("U+00A0 at 4"),
+        /// or "" when it is plain text. Lets us SEE why a message didn't count.
+        /// </summary>
+        public static string DescribeOddChars(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var found = new List<string>();
+            for (int i = 0; i < text.Length && found.Count < 8; i++)
+            {
+                char c = text[i];
+                if (c == ' ' || (c > ' ' && c < '\u007f')) continue;
+                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    int cp = char.ConvertToUtf32(c, text[i + 1]);
+                    if (cp >= 0x1F000) { i++; continue; }          // ordinary emoji: not interesting
+                    found.Add("U+" + cp.ToString("X4") + " at " + i);
+                    i++;
+                    continue;
+                }
+                found.Add("U+" + ((int)c).ToString("X4") + " at " + i);
+            }
+            return string.Join(", ", found);
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // PURE: Count how many tokens in `message` are in `matchSet`.
         //
         // WHY TOKEN MATCHING (not substring/"Contains"):
@@ -55,10 +141,181 @@ namespace OSWTools.BlowUpEmote
         // ─────────────────────────────────────────────────────────────────
         public static int CountEmoteMatches(string message, HashSet<string> matchSet, int maxMatchesPerMessage)
         {
+            return CountEmoteMatches(message, matchSet, maxMatchesPerMessage, null, null);
+        }
+
+        public static int CountEmoteMatches(string message, HashSet<string> matchSet, int maxMatchesPerMessage, IEnumerable<string> extraNames)
+        {
+            return CountEmoteMatches(message, matchSet, maxMatchesPerMessage, extraNames, null);
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // v2.8.2 / v2.8.3  GLUED EMOTES.
+        // Real chat can deliver several emotes with NOTHING between them:
+        // "KEKWKEKWKEKW", or mixed with others:
+        // "KEKWosupho13DisappointedNoGodFKEKWKEKW" (seen in bue_log.txt). Twitch only
+        // recognises emotes that are separated by spaces, so its own `emotes` list is
+        // empty for such a message. To a split-on-spaces counter it is one unknown word.
+        //
+        // The fix: cut the word into pieces and count the pieces that ARE the emote we are
+        // looking for. Everything else in the word is ignored (that is the "filter").
+        //
+        // How a word is cut ("word break" problem, dynamic programming):
+        //   1. A piece can be any KNOWN emote name: the counted emote(s), Twitch channel +
+        //      global emotes, 7TV/BTTV/FFZ names, the message's own emote list.
+        //   2. Fewest pieces wins, so "KEKW" stays one piece and is not read as "KEK"+"W".
+        //   3. If part of the word is an emote we don't know, that part may be skipped as
+        //      an "unknown chunk" - but only if the chunk is 3+ characters AND starts with
+        //      a capital letter or digit AND the counted emote is 3+ characters long.
+        //      That keeps "KEKWOW" (chunk "OW" is too short) and "KEKWait" (starts with a
+        //      small letter) from counting as KEKW.
+        // A word that contains none of the counted emotes is never touched.
+        // ─────────────────────────────────────────────────────────────────
+        public static string[] SplitGluedEmotes(string token, HashSet<string> matchSet, HashSet<string> extra, HashSet<string> bigKnown)
+        {
+            if (string.IsNullOrEmpty(token) || matchSet == null || matchSet.Count == 0 || token.Length > 200)
+                return new[] { token };
+
+            // Quick exit: no counted emote anywhere inside this word.
+            bool contains = false;
+            bool gapsOk = true;
+            foreach (string m in matchSet)
+            {
+                if (string.IsNullOrEmpty(m)) continue;
+                if (m.Length < 3) gapsOk = false;
+                if (!contains && token.IndexOf(m, StringComparison.OrdinalIgnoreCase) >= 0) contains = true;
+            }
+            if (!contains) return new[] { token };
+
+            int n = token.Length;
+            const int INF = int.MaxValue / 2;
+            var cost = new int[n + 1];
+            var hits = new int[n + 1];      // how many pieces so far are the counted emote (tie-break: more is better)
+            var from = new int[n + 1];
+            var isGap = new bool[n + 1];
+            for (int i = 1; i <= n; i++) cost[i] = INF;
+
+            for (int i = 0; i < n; i++)
+            {
+                if (cost[i] >= INF) continue;
+
+                int maxLen = Math.Min(40, n - i);
+                for (int len = 1; len <= maxLen; len++)
+                {
+                    string piece = token.Substring(i, len);
+                    bool isMatch = matchSet.Contains(piece);
+                    if (!isMatch && !(extra != null && extra.Contains(piece)) && !(bigKnown != null && bigKnown.Contains(piece))) continue;
+                    int j = i + len, c = cost[i] + 1, h = hits[i] + (isMatch ? 1 : 0);
+                    if (c < cost[j] || (c == cost[j] && h > hits[j])) { cost[j] = c; hits[j] = h; from[j] = i; isGap[j] = false; }
+                }
+
+                // An unknown chunk: 3+ characters, starting with a capital letter or a digit.
+                char f = token[i];
+                if (gapsOk && !(f >= 'a' && f <= 'z'))
+                    for (int g = 3; i + g <= n; g++)
+                    {
+                        int j = i + g, c = cost[i] + g * 1000 + 1;   // every skipped character costs far more than any number of known pieces
+                        if (c < cost[j] || (c == cost[j] && hits[i] > hits[j])) { cost[j] = c; hits[j] = hits[i]; from[j] = i; isGap[j] = true; }
+                    }
+            }
+
+            if (cost[n] >= INF) return new[] { token };       // can't be cut: leave the word alone
+
+            var pieces = new List<string>();
+            for (int end = n; end > 0; end = from[end])
+                if (!isGap[end]) pieces.Add(token.Substring(from[end], end - from[end]));
+            pieces.Reverse();
+            return pieces.Count > 0 ? pieces.ToArray() : new[] { token };
+        }
+
+        /// <summary>PURE: the emote names listed in a message's `emotes` JSON (names only, pictures not needed).</summary>
+        public static List<string> ParseEmoteNames(string emotesJson)
+        {
+            var names = new List<string>();
+            if (string.IsNullOrWhiteSpace(emotesJson) || !emotesJson.TrimStart().StartsWith("[")) return names;
+            try
+            {
+                foreach (var token in JArray.Parse(emotesJson))
+                {
+                    var o = token as JObject;
+                    if (o == null) continue;
+                    string name = FirstString(o, "name", "text");
+                    if (!string.IsNullOrWhiteSpace(name)) names.Add(name.Trim());
+                }
+            }
+            catch (Exception) { }
+            return names;
+        }
+
+        // Does any word in the message contain a counted emote without being one? Only then
+        // is it worth building the (big) list of known emote names.
+        public static bool NeedsGlueSplit(string message, HashSet<string> matchSet)
+        {
+            if (matchSet == null || matchSet.Count == 0) return false;
+            foreach (string t in TokenizeMessage(message))
+            {
+                if (matchSet.Contains(t)) continue;
+                foreach (string m in matchSet)
+                    if (!string.IsNullOrEmpty(m) && t.Length > m.Length && t.IndexOf(m, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
+
+        // Every emote name we can find without downloading anything new. Cached for a minute so
+        // a busy chat doesn't rebuild it per message. Lists: Twitch channel + global, 7TV/BTTV/FFZ
+        // (the ones switched on in Settings), the settings' own emote lists.
+        private static HashSet<string> _knownCache;
+        private static DateTime _knownAt = DateTime.MinValue;
+        private static string _knownKey = "";
+
+        public static HashSet<string> KnownEmoteNames(OSWLib lib, BueTargetConfig config)
+        {
+            string key = config == null ? "" : (config.Use7TV ? "7" : "-") + (config.UseBTTV ? "B" : "-") + (config.UseFFZ ? "F" : "-");
+            lock (SharedRng)
+            {
+                if (_knownCache != null && key == _knownKey && (DateTime.UtcNow - _knownAt).TotalSeconds < 60) return _knownCache;
+            }
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (lib != null)
+            {
+                try { set.UnionWith(lib.GetChannelEmotes()); } catch (Exception) { }
+                try { set.UnionWith(lib.GetGlobalEmotes()); } catch (Exception) { }
+                if (config != null)
+                    try { set.UnionWith(lib.GetThirdPartyEmoteNames(config.Use7TV, config.UseBTTV, config.UseFFZ)); } catch (Exception) { }
+            }
+            if (config != null)
+            {
+                if (config.SpecificEmotes != null) foreach (var e in config.SpecificEmotes) if (!string.IsNullOrWhiteSpace(e)) set.Add(e.Trim());
+                if (config.AllowedEmotes != null) foreach (var e in config.AllowedEmotes) if (!string.IsNullOrWhiteSpace(e)) set.Add(e.Trim());
+            }
+            lock (SharedRng) { _knownCache = set; _knownAt = DateTime.UtcNow; _knownKey = key; }
+            return set;
+        }
+
+        // Words of the message, with glued emotes cut apart.
+        public static List<string> TokensWithGluedSplit(string message, HashSet<string> matchSet, IEnumerable<string> extraNames, HashSet<string> bigKnown)
+        {
+            var result = new List<string>();
+            HashSet<string> extra = null;
+            foreach (string t in TokenizeMessage(message))
+            {
+                if (matchSet != null && matchSet.Contains(t)) { result.Add(t); continue; }
+                if (extra == null)
+                {
+                    extra = new HashSet<string>(StringComparer.Ordinal);
+                    if (extraNames != null) foreach (string x in extraNames) if (!string.IsNullOrWhiteSpace(x)) extra.Add(x.Trim());
+                }
+                result.AddRange(SplitGluedEmotes(t, matchSet, extra, bigKnown));
+            }
+            return result;
+        }
+
+        public static int CountEmoteMatches(string message, HashSet<string> matchSet, int maxMatchesPerMessage, IEnumerable<string> extraNames, HashSet<string> bigKnown)
+        {
             if (string.IsNullOrWhiteSpace(message) || matchSet == null || matchSet.Count == 0)
                 return 0;
 
-            var tokens = message.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = TokensWithGluedSplit(message, matchSet, extraNames, bigKnown);
 
             int count = tokens.Count(t => matchSet.Contains(t));
 
@@ -348,7 +605,7 @@ namespace OSWTools.BlowUpEmote
         ///
         /// Returns 0 on any bad input.
         /// </summary>
-        public static int CountMatchesForMessage(OSWLib lib, BueTargetConfig config, string platform, string message, string roundEmote = null)
+        public static int CountMatchesForMessage(OSWLib lib, BueTargetConfig config, string platform, string message, string roundEmote = null, string emotesJson = null)
         {
             if (config == null)
                 return 0;
@@ -358,20 +615,21 @@ namespace OSWTools.BlowUpEmote
             // PerMessage is just "PerEmote with a cap of 1". Reusing the same
             // counting code means there is only one place that can have a bug.
             int cap = config.CountMode == GrowthCountMode.PerMessage ? 1 : config.MaxMatchesPerMessage;
-            return CountEmoteMatches(message, matchSet, cap);
+            HashSet<string> big = NeedsGlueSplit(message, matchSet) ? KnownEmoteNames(lib, config) : null;
+            return CountEmoteMatches(message, matchSet, cap, ParseEmoteNames(emotesJson), big);
         }
 
         /// <summary>
         /// The first word in the message that is one of the counted emotes
         /// (exactly as typed in chat), or "" if none.
         /// </summary>
-        public static string FirstMatchedToken(OSWLib lib, BueTargetConfig config, string platform, string message, string roundEmote = null)
+        public static string FirstMatchedToken(OSWLib lib, BueTargetConfig config, string platform, string message, string roundEmote = null, string emotesJson = null)
         {
             if (config == null || string.IsNullOrWhiteSpace(message))
                 return "";
 
             var matchSet = MatchSetFor(lib, config, platform, roundEmote);
-            foreach (var t in message.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var t in TokensWithGluedSplit(message, matchSet, ParseEmoteNames(emotesJson), NeedsGlueSplit(message, matchSet) ? KnownEmoteNames(lib, config) : null))
                 if (matchSet.Contains(t))
                     return t;
             return "";
@@ -767,7 +1025,7 @@ namespace OSWTools.BlowUpEmote
         public static string FindHttpsUrl(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
-            foreach (var t in text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var t in TokenizeMessage(text))
                 if (IsHttpsUrl(t)) return t.Trim();
             return "";
         }
@@ -807,7 +1065,7 @@ namespace OSWTools.BlowUpEmote
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
-            var tokens = text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = TokenizeMessage(text);
 
             if (emotesInMessage != null && emotesInMessage.Count > 0)
                 foreach (var t in tokens)

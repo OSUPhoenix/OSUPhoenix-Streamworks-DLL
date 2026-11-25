@@ -49,10 +49,6 @@ namespace OSWTools
         /// </summary>
         private readonly bool _DebugMode;
 
-        // ── Static initialization (once per SB session) ───────────────────────────
-        private static bool _staticInitialized = false;
-        private static readonly object _initLock = new object();
-
         // ── Constructors ──────────────────────────────────────────────────────────
 
         /// <summary>
@@ -87,34 +83,14 @@ namespace OSWTools
         // ── Static initialization ─────────────────────────────────────────────────
 
         /// <summary>
-        /// Runs once per Streamer.bot session regardless of how many tools
-        /// construct an OSWLib instance. Thread-safe via double-check locking.
-        /// Add any one-time setup here (e.g. ensuring OSWData folder exists).
+        /// CHANGED: the once-per-session work (OSWData folder, DLL location
+        /// check, restart popup) moved to OSWStartup.EnsureStarted(), so tools
+        /// that never create an OSWLib (e.g. OSW Panels) can run it too.
+        /// After the first call this is a single bool check.
         /// </summary>
         private void InitializeStaticComponents()
         {
-            // Fast path — already done
-            if (_staticInitialized) return;
-
-            lock (_initLock)
-            {
-                // Second check inside the lock in case another thread beat us here
-                if (_staticInitialized) return;
-
-                try
-                {
-                    // Ensure the OSWData root folder exists so tools can write immediately
-                    OSWTools.Data.FileManager.EnsureRootFolder();
-                    _staticInitialized = true;
-                }
-                catch (Exception ex)
-                {
-                    // Silent failure — individual methods handle missing init gracefully.
-                    // We still mark as initialized so we don't retry on every construction.
-                    _CPH.LogWarn("[OSWTools] Static init failed: " + ex.Message);
-                    _staticInitialized = true;
-                }
-            }
+            OSWStartup.EnsureStarted(_CPH);
         }
     }
 }

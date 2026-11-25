@@ -27,8 +27,9 @@ namespace OSWTools.Versioning
     ///   3. ApplyUpdate()         - Write a swap batch script, tell user to restart.
     ///
     /// Windows locks loaded DLL files, so we cannot replace OSWTools.dll while
-    /// Streamer.bot is running. We download to OSWTools.dll.pending and write
-    /// a .bat file that swaps the files after Streamer.bot closes.
+    /// Streamer.bot is running. We download to OSWData\Updater\OSWTools.dll.pending
+    /// and DllInstaller writes a .bat file that installs it into
+    /// &lt;SB folder&gt;\dlls\ after Streamer.bot closes.
     /// </summary>
     public static class UpdateChecker
     {
@@ -95,6 +96,7 @@ namespace OSWTools.Versioning
             try
             {
                 string pendingPath = GetPendingUpdatePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(pendingPath));   // NEW: OSWData\Updater may not exist yet
 
                 using (WebClient wc = new WebClient())
                 {
@@ -119,39 +121,21 @@ namespace OSWTools.Versioning
         // ── Apply ─────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Writes a batch script that swaps the pending DLL into place after
-        /// Streamer.bot closes, then launches it in the background.
+        /// Schedules the downloaded update to be installed once Streamer.bot
+        /// closes. The install always goes to &lt;SB folder&gt;\dlls\OSWTools.dll,
+        /// and an old copy in the SB root folder is removed at the same time.
         /// Returns false if no staged update exists.
         /// Tell the user to close and reopen Streamer.bot after calling this.
+        ///
+        /// CHANGED: this used to write its own .bat that waited a fixed 3
+        /// seconds and then copied over the DLL — while Streamer.bot was still
+        /// running and the DLL was still locked. DllInstaller's script waits
+        /// for Streamer.bot to actually exit before touching any files.
         /// </summary>
         public static bool ApplyUpdate()
         {
-            string pendingPath = GetPendingUpdatePath();
-            if (!File.Exists(pendingPath)) return false;
-
-            string dllPath    = GetCurrentDllPath();
-            string dir        = Path.GetDirectoryName(dllPath);
-            string scriptPath = Path.Combine(dir, "osw_update.bat");
-
-            // PING is used as a batch sleep: pinging localhost N times = ~N-1 seconds.
-            string script =
-                "@echo off\r\n" +
-                "ping 127.0.0.1 -n 4 > nul\r\n" +
-                "copy /Y \"" + pendingPath + "\" \"" + dllPath + "\"\r\n" +
-                "del \"" + pendingPath + "\"\r\n" +
-                "del \"%~f0\"\r\n";
-
-            File.WriteAllText(scriptPath, script);
-
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName        = scriptPath,
-                WindowStyle     = System.Diagnostics.ProcessWindowStyle.Hidden,
-                CreateNoWindow  = true,
-                UseShellExecute = true
-            });
-
-            return true;
+            if (!File.Exists(GetPendingUpdatePath())) return false;
+            return DllInstaller.ScheduleSwapOnExit();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
@@ -162,14 +146,11 @@ namespace OSWTools.Versioning
             return File.Exists(GetPendingUpdatePath());
         }
 
+        // CHANGED: the download now waits in OSWData\Updater\ instead of next
+        // to the DLL, so stray .pending files never clutter the dlls folder.
         private static string GetPendingUpdatePath()
         {
-            return Path.Combine(Path.GetDirectoryName(GetCurrentDllPath()), "OSWTools.dll.pending");
-        }
-
-        private static string GetCurrentDllPath()
-        {
-            return typeof(UpdateChecker).Assembly.Location;
+            return DllInstaller.PendingPath;
         }
 
         private static UpdateCheckResult Failure(string message)
